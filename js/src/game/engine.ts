@@ -1,30 +1,32 @@
 /**
  * 游戏核心引擎：实体生成、固定步长推进、移动、圆形碰撞结算（吞噬 / 受伤）、
  * 进化切换、捕获与环绕卫星。所有函数就地修改传入的 GameState。
+ *
+ * 世界坐标 1 单位 = 屏幕 1 像素：玩家居中（相机），实体以绝对坐标存储，
+ * 半径 r 既是绘制半径也是碰撞半径。绘制与碰撞天然一致，无「缩放 / 视觉半径」折算。
  */
 
-import type { Entity, GameState, InputState, Party } from "../store/game";
+import type { Entity, GameState, InputState } from "../store/game";
 import {
   STAGES,
-  TARGET_ENTITIES,
-  INITIAL_ENTITIES,
-  SPAWN_INTERVAL,
-  INITIAL_DIST_MIN,
-  INITIAL_DIST_MAX,
-  SPAWN_DIST_MIN,
-  SPAWN_DIST_MAX,
+  FINAL_MATTER,
+  DT,
+  PLAYER_SPEED,
+  SPAWN_GAP_MIN,
+  SPAWN_GAP_MAX,
   DESPAWN_DIST,
+  CAPTURE_RANGE,
+  TARGET_ENTITIES,
   DAMAGE,
   MAX_HEALTH,
   HIT_FLASH_FRAMES,
+  BIG_PER_MINUTE,
+  BIG_WINDOW,
+  MATTER_FLOOR,
+  MATTER_CAP,
+  GROWTH,
+  GROWTH_CAP,
   ORBIT_SPEED,
-  CAPTURE_RANGE,
-  DT,
-  PLAYER_SPEED_BASE,
-  ENDING_CONVERGE_S,
-  ENDING_BLUE_S,
-  ENDING_BANG_S,
-  BANG_PARTICLES,
 } from "./config";
 
 const rand = (min: number, max: number): number =>
@@ -32,81 +34,6 @@ const rand = (min: number, max: number): number =>
 
 function dist(ax: number, ay: number, bx: number, by: number): number {
   return Math.hypot(ax - bx, ay - by);
-}
-
-/** 三次缓入缓出（用于动画插值）。 */
-function easeIO(x: number): number {
-  return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
-}
-
-/** 生成一颗爆炸扩散粒子。 */
-function makeParty(): Party {
-  return {
-    angle: Math.random() * Math.PI * 2,
-    speed: rand(120, 360),
-    radius: rand(2, 5),
-    color: Math.random() < 0.7 ? "#40c4ff" : "#b3e5fc",
-  };
-}
-
-/** 推进宇宙创生结局动画（status === "win" 且正在播放）。 */
-function advanceEnding(state: GameState, dt: number): void {
-  const e = state.ending!;
-  e.t += dt / durationOf(e.phase);
-  if (e.t > 1) e.t = 1;
-
-  switch (e.phase) {
-    case "converge": {
-      // 所有天体 / 卫星向玩家中心（原点）聚拢并缩小，玩家随之膨胀。
-      const k = easeIO(e.t);
-      const mergeAll: Entity[] = [...state.entities, ...state.satellites];
-      const base = STAGES[state.stageIndex].radius;
-      state.player.radius = base * (1 + 0.4 * k);
-      for (const b of mergeAll) {
-        b.x *= 1 - k;
-        b.y *= 1 - k;
-        b.radius *= 1 - k;
-      }
-      if (e.t >= 1) {
-        state.entities = [];
-        state.satellites = [];
-        state.player.radius = 10;
-        state.ending = { phase: "blue", t: 0 };
-      }
-      break;
-    }
-    case "blue": {
-      state.player.radius = 10;
-      if (e.t >= 1) {
-        const particles: Party[] = [];
-        for (let i = 0; i < BANG_PARTICLES; i++) particles.push(makeParty());
-        state.ending = { phase: "bang", t: 0, particles };
-      }
-      break;
-    }
-    case "bang": {
-      // 粒子随 t 向外扩散（位置在渲染层依据 t 计算），半径渐隐。
-      if (e.t >= 1) {
-        state.ending = { phase: "done", t: 1 };
-      }
-      break;
-    }
-    case "done":
-      break;
-  }
-}
-
-function durationOf(phase: string): number {
-  switch (phase) {
-    case "converge":
-      return ENDING_CONVERGE_S;
-    case "blue":
-      return ENDING_BLUE_S;
-    case "bang":
-      return ENDING_BANG_S;
-    default:
-      return 1;
-  }
 }
 
 /** 创建一个新游戏状态（玩家为陨石，生成初始天体）。 */
@@ -119,7 +46,7 @@ export function createGame(): GameState {
       y: 0,
       vx: 0,
       vy: 0,
-      radius: STAGES[0].radius,
+      radius: STAGES[0].r,
       power: 0,
       matterValue: 0,
       isSatellite: false,
@@ -131,154 +58,174 @@ export function createGame(): GameState {
     health: MAX_HEALTH,
     maxHealth: MAX_HEALTH,
     time: 0,
+    bigSpawnTimes: [],
     nextEntityId: 1,
     hitFlash: 0,
     blockFlash: 0,
-    spawnTimer: 0,
   };
-  while (state.entities.length < INITIAL_ENTITIES) {
-    spawnEntity(state, true);
+  while (state.entities.length < TARGET_ENTITIES) {
+    spawnEntity(state);
   }
   return state;
 }
 
-/** 生成一颗自由天体。initial=true 时用于开局场（同样落在可视范围之外）。天体静止悬停。 */
-export function spawnEntity(state: GameState, initial = false): void {
-  const p = state.stageIndex;
+/**
+ * 在玩家周围随机生成一颗自由天体。
+ * 等级分布相对玩家当前等级：约一半明显更低（可吞噬），一小半同级，一小部分明显更高（需躲避）。
+ * 同级再分两类：约半数真实半径比玩家小（可吞噬），约半数与玩家相当/更大（不可吞噬，撞击掉血）。
+ * 生成距离以「屏幕像素间隙」衡量，避免真实半径巨大的高阶天体被生成在极远处而瞬间回收。
+ */
+export function spawnEntity(state: GameState): void {
+  const pr = state.stageIndex;
+  const p = state.player;
   const r = Math.random();
-  let power: number;
-  if (r < 0.6) {
-    power = Math.max(0, Math.floor(Math.random() * p));
-  } else if (r < 0.85) {
-    power = p;
-  } else {
-    power = Math.min(STAGES.length - 1, p + 1 + Math.floor(Math.random() * 2));
-  }
 
-  const baseR = STAGES[power].radius;
-  let radius: number;
-  if (power < p) {
-    radius = baseR * (0.5 + Math.random() * 0.8);
-  } else if (power === p) {
-    radius = baseR * (0.8 + Math.random() * 1.4);
-  } else {
-    radius = baseR * (1.0 + Math.random() * 1.0);
-  }
-  radius = Math.max(6, radius);
+  let category: "small" | "mid" | "big";
+  if (r < 0.5) category = "small";
+  else if (r < 0.85) category = "mid";
+  else category = "big";
 
-  const matterValue = Math.max(1, Math.round(radius * 0.6));
-
-  // 生成位置采样：开局与补位天体都落在可视范围之外——玩家开局只身一人，
-  // 世界是一张固定的散布星图，靠探索去发现，不会在身边/视野里"冒出来"。
-  const samplePos = (): [number, number] => {
-    const ang = Math.random() * Math.PI * 2;
-    const a = initial ? INITIAL_DIST_MIN : SPAWN_DIST_MIN;
-    const b = initial ? INITIAL_DIST_MAX : SPAWN_DIST_MAX;
-    const d = rand(a, b);
-    return [
-      state.player.x + Math.cos(ang) * d,
-      state.player.y + Math.sin(ang) * d,
-    ];
-  };
-
-  // 重复采样直到不与其他天体 / 玩家重叠（带少量间距），保证星体真正离散。
-  let [x, y] = samplePos();
-  for (let g = 0; g < 24; g++) {
-    let overlap = false;
-    if (
-      dist(x, y, state.player.x, state.player.y) <
-      radius + state.player.radius + 12
-    ) {
-      overlap = true;
-    } else {
-      for (const other of state.entities) {
-        if (dist(x, y, other.x, other.y) < radius + other.radius + 10) {
-          overlap = true;
-          break;
-        }
-      }
+  // 限速：滚动窗口内「明显更大」天体已达上限 → 降级为可吞噬的小天体。
+  if (category === "big") {
+    state.bigSpawnTimes = state.bigSpawnTimes.filter(
+      (t) => state.time - t <= BIG_WINDOW,
+    );
+    if (state.bigSpawnTimes.length >= BIG_PER_MINUTE) {
+      category = "small";
     }
-    if (!overlap) break;
-    [x, y] = samplePos();
   }
 
-  const e: Entity = {
+  let power: number;
+  let radius: number;
+  if (category === "small") {
+    // 多数：明显低于玩家 → 可被吞噬。
+    power = Math.max(0, pr - 1 - Math.floor(Math.random() * 2));
+    radius = STAGES[power].r * rand(0.5, 0.85);
+  } else if (category === "mid") {
+    // 同级：半数比玩家小（可吞噬），半数与玩家相当/更大（不可吞噬）。
+    power = pr;
+    if (Math.random() < 0.5) {
+      radius = p.radius * rand(0.5, 0.85); // < 玩家 → 可吞
+    } else {
+      radius = p.radius * rand(1.0, 1.25); // >= 玩家 → 不可吞
+    }
+  } else {
+    // 少数：明显大于玩家两阶以上 → 需躲避（碰之即死）。
+    power = Math.min(STAGES.length - 1, pr + 2 + Math.floor(Math.random() * 2));
+    radius = STAGES[power].r;
+    state.bigSpawnTimes.push(state.time);
+  }
+  radius = Math.max(1, radius);
+
+  const matterValue = Math.max(
+    MATTER_FLOOR,
+    Math.min(MATTER_CAP, Math.round(radius * 0.6)),
+  );
+  const ang = Math.random() * Math.PI * 2;
+  // 生成距离 = 双方半径 + 像素间隙，保证天体出现在玩家屏幕边缘附近且不重叠。
+  const d = p.radius + radius + rand(SPAWN_GAP_MIN, SPAWN_GAP_MAX);
+  const sp = rand(8, 20);
+  const sang = Math.random() * Math.PI * 2;
+
+  state.entities.push({
     id: state.nextEntityId++,
-    x,
-    y,
-    vx: 0,
-    vy: 0,
+    x: p.x + Math.cos(ang) * d,
+    y: p.y + Math.sin(ang) * d,
+    vx: Math.cos(sang) * sp,
+    vy: Math.sin(sang) * sp,
     radius,
     power,
     matterValue,
     isSatellite: false,
-  };
-  state.entities.push(e);
+  });
 }
 
-/** 吞噬：更小天体被移除，累加物质，玩家尺寸微增。 */
+/** 保证玩家周围始终存在「下一等级」天体（进化链的直接目标）。不计入大天体限速。 */
+export function forceSpawnNext(state: GameState): void {
+  const pr = state.stageIndex;
+  if (pr >= STAGES.length - 1) return;
+  const p = state.player;
+  const power = pr + 1;
+  const radius = STAGES[power].r;
+  const matterValue = Math.max(
+    MATTER_FLOOR,
+    Math.min(MATTER_CAP, Math.round(radius * 0.6)),
+  );
+  const ang = Math.random() * Math.PI * 2;
+  const d = p.radius + radius + rand(SPAWN_GAP_MIN, SPAWN_GAP_MAX);
+  const sp = rand(8, 20);
+  const sang = Math.random() * Math.PI * 2;
+  state.entities.push({
+    id: state.nextEntityId++,
+    x: p.x + Math.cos(ang) * d,
+    y: p.y + Math.sin(ang) * d,
+    vx: Math.cos(sang) * sp,
+    vy: Math.sin(sang) * sp,
+    radius,
+    power,
+    matterValue,
+    isSatellite: false,
+  });
+}
+
+/** 吞噬：更低等级天体被移除，累加物质并回血，玩家尺寸微增。 */
 function absorb(state: GameState, e: Entity): void {
   let gain = e.matterValue;
-  // 中子星(L10, index 9) / 黑洞(L11, index 10) 吸收恒星及以下获得额外能量。
-  if (state.stageIndex >= 9 && e.power <= 6) {
+  // 中子星(L9) / 黑洞(L10) / 宇宙(L11) 吸收恒星及以下获得额外能量。
+  if (state.stageIndex >= 8 && e.power <= 6) {
     gain += Math.round(e.matterValue * 0.5);
   }
   state.matter += gain;
-  const base = STAGES[state.stageIndex].radius;
-  state.player.radius = Math.min(state.player.radius + 0.04, base * 1.25);
+  const base = STAGES[state.stageIndex].r;
+  state.player.radius = Math.min(
+    state.player.radius + GROWTH,
+    base * GROWTH_CAP,
+  );
+  const heal = Math.min(state.maxHealth - state.health, 1);
+  state.health = Math.min(state.maxHealth, state.health + heal);
   e.removed = true;
 }
 
-/** 受伤：更大天体撞击。L4+ 且有卫星时以卫星抵挡（碎裂），否则扣血。 */
-function impact(state: GameState, e: Entity): void {
-  const canShield = state.stageIndex >= 3 && state.satellites.length > 0;
-  if (canShield) {
-    const shatter = Math.min(
-      state.satellites.length,
-      1 + (e.power - state.stageIndex),
-    );
-    // 碎裂最靠近撞击方向的卫星。
-    const px = state.player.x;
-    const py = state.player.y;
-    state.satellites.sort((a, b) => {
-      const ax = px + Math.cos(a.angle ?? 0) * (a.orbitRadius ?? 0);
-      const ay = py + Math.sin(a.angle ?? 0) * (a.orbitRadius ?? 0);
-      const bx = px + Math.cos(b.angle ?? 0) * (b.orbitRadius ?? 0);
-      const by = py + Math.sin(b.angle ?? 0) * (b.orbitRadius ?? 0);
-      return dist(ax, ay, e.x, e.y) - dist(bx, by, e.x, e.y);
-    });
-    state.satellites.splice(0, shatter);
-    state.blockFlash = HIT_FLASH_FRAMES;
-  } else {
-    state.health -= DAMAGE;
-    state.hitFlash = HIT_FLASH_FRAMES;
-    if (state.health <= 0) {
-      state.health = 0;
-      state.status = "gameover";
-    }
-  }
-  e.removed = true;
-}
-
-/** 玩家与某天体的碰撞结算。 */
+/** 玩家与某天体的碰撞结算。
+ * 规则：更低等级 → 吞噬；同类中真实半径明显更小者亦视为食物；
+ * 同类中相当/更大者 → 撞击掉血且敌方死（卫星可抵挡）；更高等级 → 直接死亡。 */
 function resolveCollision(state: GameState, e: Entity): void {
   const p = state.player;
-  if (dist(p.x, p.y, e.x, e.y) >= p.radius + e.radius) return;
-
   const pr = state.stageIndex;
+  const rr = p.radius + e.radius;
+  if (dist(p.x, p.y, e.x, e.y) >= rr) return;
+
+  // 更低等级：吞噬（吸收物质回血）。
   if (e.power < pr) {
     absorb(state, e);
     return;
   }
+
+  // 更高等级（明显更大的天体）：直接死亡，敌方毫发无损。
   if (e.power > pr) {
-    impact(state, e);
+    state.health = 0;
+    state.hitFlash = HIT_FLASH_FRAMES;
+    state.status = "gameover";
     return;
   }
-  // 同等级：按半径细分。
+
+  // 同类：真实半径比玩家小 → 吞噬；与玩家相当/更大 → 撞击掉血且敌方死。
   if (e.radius < p.radius * 0.95) {
     absorb(state, e);
-  } else if (e.radius > p.radius * 1.05) {
-    impact(state, e);
+    return;
+  }
+  const canShield = state.stageIndex >= 3 && state.satellites.length > 0;
+  if (canShield) {
+    state.satellites.splice(0, 1);
+    state.blockFlash = HIT_FLASH_FRAMES;
+  } else {
+    state.health -= DAMAGE;
+    state.hitFlash = HIT_FLASH_FRAMES;
+  }
+  e.removed = true;
+  if (state.health <= 0) {
+    state.health = 0;
+    state.status = "gameover";
   }
 }
 
@@ -291,7 +238,7 @@ export function tryCapture(state: GameState): void {
   for (let i = 0; i < state.entities.length; i++) {
     const e = state.entities[i];
     const d = dist(p.x, p.y, e.x, e.y);
-    if (d <= p.radius + CAPTURE_RANGE && d < bestD) {
+    if (d <= p.radius + e.radius + CAPTURE_RANGE && d < bestD) {
       bestD = d;
       bestIdx = i;
     }
@@ -301,8 +248,19 @@ export function tryCapture(state: GameState): void {
   state.entities.splice(bestIdx, 1);
   e.isSatellite = true;
   e.angle = Math.random() * Math.PI * 2;
-  e.orbitRadius = p.radius + 26 + state.satellites.length * 16;
+  // 轨道半径随玩家半径缩放（低等级用固定内移量），保证卫星始终环绕在玩家外侧。
+  e.orbitRadius = p.radius * (1.4 + 0.25 * state.satellites.length);
   state.satellites.push(e);
+}
+
+/** 调试：直接提升一个等级（进化到下一阶段），并补满血量，便于快速预览各阶段体型。 */
+export function forceLevelUp(state: GameState): void {
+  if (state.stageIndex >= STAGES.length - 1) return;
+  state.stageIndex++;
+  state.player.radius = STAGES[state.stageIndex].r;
+  state.player.power = state.stageIndex;
+  state.health = state.maxHealth;
+  state.matter = STAGES[state.stageIndex].reachMatter;
 }
 
 /** 推进一帧。input 为当前摇杆输入，dt 为步长（秒）。 */
@@ -311,18 +269,13 @@ export function step(
   input: InputState,
   dt: number = DT,
 ): void {
-  // 结局动画进行中：只推进动画，不再处理输入 / 战斗。
-  if (state.ending) {
-    advanceEnding(state, dt);
-    return;
-  }
   if (state.status !== "playing") return;
   state.time += dt;
   if (state.hitFlash > 0) state.hitFlash--;
   if (state.blockFlash > 0) state.blockFlash--;
 
-  // 玩家移动：摇杆向量 × 强度 → 速度。
-  const speed = PLAYER_SPEED_BASE * (1 - 0.03 * state.stageIndex);
+  // 玩家移动：摇杆方向（归一化）× 强度 → 速度（屏幕恒定速度）。
+  const speed = PLAYER_SPEED;
   const mag = Math.hypot(input.dx, input.dy);
   if (mag > 1 && input.intensity > 0) {
     const vx = (input.dx / mag) * speed * input.intensity;
@@ -356,31 +309,33 @@ export function step(
     (e) => dist(state.player.x, state.player.y, e.x, e.y) <= DESPAWN_DIST,
   );
 
-  // 渐进补足：按 SPAWN_INTERVAL 每间隔生成一颗，直到目标数量——补给连续但不一次性铺满。
-  state.spawnTimer += dt;
-  while (
-    state.spawnTimer >= SPAWN_INTERVAL &&
-    state.entities.length < TARGET_ENTITIES
+  // 维持同屏数量。
+  while (state.entities.length < TARGET_ENTITIES) {
+    spawnEntity(state);
+  }
+
+  // 进化链保底：周围始终存在「下一等级」天体，确保可一路向上进化。
+  if (
+    state.stageIndex < STAGES.length - 1 &&
+    !state.entities.some((e) => e.power === state.stageIndex + 1)
   ) {
-    spawnEntity(state, false);
-    state.spawnTimer -= SPAWN_INTERVAL;
+    forceSpawnNext(state);
   }
 
   // 进化切换：累计物质跨越阈值则升级，半径重置为等级基础值。
+  // 每次只进化一阶：进化后将物质重置为本阶阈值，丢弃溢出，避免一次吞噬连跨多阶。
   while (
     state.stageIndex < STAGES.length - 1 &&
     state.matter >= STAGES[state.stageIndex + 1].reachMatter
   ) {
     state.stageIndex++;
-    state.player.radius = STAGES[state.stageIndex].radius;
+    state.player.radius = STAGES[state.stageIndex].r;
+    state.player.power = state.stageIndex;
+    state.matter = STAGES[state.stageIndex].reachMatter;
   }
 
-  // 结局：进化成最终阶段「宇宙」(L12, index 11) 即触发宇宙创生动画（团聚→蓝点→
-  // 爆炸成新宇宙），播毕后展示「另一个宇宙」。此即进化的终点。
-  if (state.stageIndex === STAGES.length - 1) {
+  // 结局：宇宙且物质达到 5000 → 另一个宇宙。
+  if (state.stageIndex === STAGES.length - 1 && state.matter >= FINAL_MATTER) {
     state.status = "win";
-    state.player.x = 0;
-    state.player.y = 0;
-    state.ending = { phase: "converge", t: 0 };
   }
 }

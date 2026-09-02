@@ -1,13 +1,17 @@
 import React from "react";
-import { Column, Container, Text, SizedBox } from "fuickjs";
+import {
+  Column,
+  Container,
+  Text,
+  SizedBox,
+  LinearProgressIndicator,
+} from "fuickjs";
 import type { GameState } from "../store/game";
 import { STAGES, FINAL_MATTER, VW } from "../game/config";
 
 interface HudProps {
   state: GameState;
 }
-
-const BAR_W = VW - 20;
 
 /** 顶部状态 HUD：等级名、物质、升级进度、生命值。 */
 export default function Hud({ state }: HudProps) {
@@ -24,7 +28,8 @@ export default function Hud({ state }: HudProps) {
     nextName = "另一个宇宙";
   }
   pct = Math.max(0, Math.min(1, pct));
-  const hp = Math.max(0, Math.min(1, state.health / state.maxHealth));
+  const maxH = state.maxHealth && state.maxHealth > 0 ? state.maxHealth : 100;
+  const hp = Math.max(0, Math.min(1, state.health / maxH));
 
   return (
     <Container width={VW} padding={10} color="rgba(0,0,0,0.35)">
@@ -36,19 +41,34 @@ export default function Hud({ state }: HudProps) {
           fontWeight="bold"
         />
         <SizedBox height={6} />
-        <Container width={BAR_W} height={10} color="rgba(255,255,255,0.20)">
-          <Container width={BAR_W * pct} height={10} color="#4fc3f7" />
-        </Container>
+        <LinearProgressIndicator
+          value={pct}
+          color="#4fc3f7"
+          backgroundColor="rgba(255,255,255,0.20)"
+          strokeWidth={10}
+          borderRadius={5}
+        />
         <SizedBox height={4} />
         <Text
           text={`距「${nextName}」还需 ${Math.max(0, Math.ceil((state.stageIndex < STAGES.length - 1 ? STAGES[state.stageIndex + 1].reachMatter : FINAL_MATTER) - state.matter))}`}
           color="#cfd8dc"
           fontSize={12}
         />
-        <SizedBox height={6} />
-        <Container width={BAR_W} height={8} color="rgba(255,255,255,0.20)">
-          <Container width={BAR_W * hp} height={8} color="#ef5350" />
-        </Container>
+        <SizedBox height={8} />
+        <Text
+          text={`HP ${Math.ceil(state.health)} / ${maxH}`}
+          color="#ff8a80"
+          fontSize={12}
+          fontWeight="bold"
+        />
+        <SizedBox height={3} />
+        <LinearProgressIndicator
+          value={hp}
+          color={hp > 0.5 ? "#66bb6a" : hp > 0.25 ? "#ffa726" : "#ef5350"}
+          backgroundColor="rgba(255,255,255,0.18)"
+          strokeWidth={12}
+          borderRadius={6}
+        />
       </Column>
     </Container>
   );

@@ -4,7 +4,6 @@ import {
   Container,
   Positioned,
   Stack,
-  PointArgs,
   DragArgs,
 } from "fuickjs";
 import type { InputState } from "../store/game";
@@ -20,27 +19,35 @@ interface JoystickProps {
 
 /** 左下角虚拟摇杆：拖动输出方向向量与强度，松开归零。 */
 export default function Joystick({ inputRef }: JoystickProps) {
-  const baseRef = useRef<{ x: number; y: number }>({ x: CENTER, y: CENTER });
+  // Flutter 的 onPanUpdate 只给「增量 delta」(details.delta)，需累加成
+  // 相对起点的累计位移，才能得到稳定的方向与强度（框架 DragArgs 语义）。
+  const accumRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const [knob, setKnob] = useState<{ x: number; y: number }>({
     x: CENTER,
     y: CENTER,
   });
 
-  const onPanStart = (e: PointArgs) => {
-    baseRef.current = { x: e.dx, y: e.dy };
-    setKnob({ x: e.dx, y: e.dy });
+  const onPanStart = () => {
+    accumRef.current = { x: 0, y: 0 };
+    setKnob({ x: CENTER, y: CENTER });
   };
 
   const onPanUpdate = (e: DragArgs) => {
-    const len = Math.hypot(e.dx, e.dy);
-    const intensity = Math.min(len / JOY_MAX_R, 1);
-    inputRef.current = { dx: e.dx, dy: e.dy, intensity };
-    const clx = Math.max(-JOY_MAX_R, Math.min(JOY_MAX_R, e.dx));
-    const cly = Math.max(-JOY_MAX_R, Math.min(JOY_MAX_R, e.dy));
-    setKnob({ x: baseRef.current.x + clx, y: baseRef.current.y + cly });
+    let ax = accumRef.current.x + e.dx;
+    let ay = accumRef.current.y + e.dy;
+    const len = Math.hypot(ax, ay);
+    if (len > JOY_MAX_R) {
+      ax = (ax / len) * JOY_MAX_R;
+      ay = (ay / len) * JOY_MAX_R;
+    }
+    accumRef.current = { x: ax, y: ay };
+    const intensity = Math.min(Math.hypot(ax, ay) / JOY_MAX_R, 1);
+    inputRef.current = { dx: ax, dy: ay, intensity };
+    setKnob({ x: CENTER + ax, y: CENTER + ay });
   };
 
   const onPanEnd = () => {
+    accumRef.current = { x: 0, y: 0 };
     inputRef.current = { dx: 0, dy: 0, intensity: 0 };
     setKnob({ x: CENTER, y: CENTER });
   };

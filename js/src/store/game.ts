@@ -35,25 +35,6 @@ export interface Entity {
 
 export type GameStatus = "playing" | "gameover" | "win";
 
-/** 结局动画的阶段。 */
-export type EndingPhase = "converge" | "blue" | "bang" | "done";
-
-/** 结局动画进度：phase 为当前阶段，t 为该阶段进度 0..1。 */
-export interface EndingState {
-  phase: EndingPhase;
-  t: number;
-  /** 爆炸粒子（bang 阶段开始时初始化）。 */
-  particles?: Party[];
-}
-
-/** 一颗爆炸扩散粒子。 */
-export interface Party {
-  angle: number;
-  speed: number;
-  radius: number;
-  color: string;
-}
-
 export interface GameState {
   status: GameStatus;
   player: Entity;
@@ -66,15 +47,13 @@ export interface GameState {
   health: number;
   maxHealth: number;
   time: number;
+  /** 记录「比玩家明显更大」天体的生成时间戳，用于每分钟生成数限速。 */
+  bigSpawnTimes: number[];
   nextEntityId: number;
   /** 受击闪烁剩余帧。 */
   hitFlash: number;
   /** 卫星抵挡闪烁剩余帧。 */
   blockFlash: number;
-  /** 距上次生成新天体的累计时间（秒），驱动渐进生成。 */
-  spawnTimer: number;
-  /** 结局动画进度（status === "win" 且动画未播毕时存在）。 */
-  ending?: EndingState;
 }
 
 /** 摇杆输入：dx/dy 为相对起点的位移（像素），intensity 为 0~1 强度。 */

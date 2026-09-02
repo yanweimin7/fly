@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 /**
- * fly 项目打包：将 dist/bundle.js + assets/ 签名打包为 zip，
+ * fly 项目打包：将 dist/bundle.js + assets/ 打包为签名 zip，
  * 并复制到 fuickjs_demo/app/assets/js/game.zip。
  *
  *   node scripts/bundle-pack.js [--version 1.0.0] [--copy]
+ *
+ * 打包本身委托给 demo 的标准打包命令 pack-bundle.js（与 pack-all.js 一致），
+ * 保证 manifest 结构、assets 收录与签名逻辑和 demo 其它 bundle 完全相同。
  *
  * 不带 --copy 时只生成 fly/dist/game-<version>.zip；
  * 带 --copy 时额外复制到 demo 工程并重新生成 bundles.json。
@@ -11,22 +14,23 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
 const os = require("node:os");
+const { execFileSync } = require("node:child_process");
 
 /* ── 路径 ─────────────────────────────────────────────────────────── */
 const FLY_JS = path.resolve(__dirname, "..");
 const FLY_DIST = path.join(FLY_JS, "dist");
 const FLY_ASSETS = path.join(FLY_JS, "assets");
 const DEMO_ROOT = path.resolve(FLY_JS, "..", "..", "fuickjs_demo");
+const DEMO_JS = path.join(DEMO_ROOT, "js");
 const DEMO_APP_JS = path.join(DEMO_ROOT, "app", "assets", "js");
 const DEMO_KEY = path.join(
-  DEMO_ROOT,
-  "js",
+  DEMO_JS,
   "tools",
   "bundle",
   "bundle_signing_key.pem",
 );
+const PACK_BUNDLE = path.join(DEMO_JS, "tools", "bundle", "pack-bundle.js");
 
 const BUNDLE_NAME = "game"; // 与 pack-all.js BUNDLES 数组对齐
 const DEFAULT_VERSION = "1.0.0";
@@ -37,16 +41,6 @@ function sha256File(file) {
     .createHash("sha256")
     .update(fs.readFileSync(file))
     .digest("hex");
-}
-
-function copyDirSync(src, dest) {
-  fs.mkdirSync(dest, { recursive: true });
-  for (const e of fs.readdirSync(src, { withFileTypes: true })) {
-    const s = path.join(src, e.name);
-    const d = path.join(dest, e.name);
-    if (e.isDirectory()) copyDirSync(s, d);
-    else if (e.isFile()) fs.copyFileSync(s, d);
-  }
 }
 
 function parseArgs() {
@@ -68,99 +62,90 @@ function main() {
     process.exit(1);
   }
   if (!fs.existsSync(DEMO_KEY)) {
-    console.error("找不到签名密钥:", DEMO_KEY);
+    console.error(
+      "找不到签名密钥:",
+      DEMO_KEY,
+      "（请先 cd fuickjs_demo/js && npm run bundle:keys）",
+    );
+    process.exit(1);
+  }
+  if (!fs.existsSync(PACK_BUNDLE)) {
+    console.error("找不到 demo 打包命令 pack-bundle.js:", PACK_BUNDLE);
     process.exit(1);
   }
 
-  const staging = fs.mkdtempSync(path.join(os.tmpdir(), "fly-pack-"));
-  try {
-    // 1. 复制代码（zip 内统一为 bundle.js）
-    fs.copyFileSync(bundleJs, path.join(staging, "bundle.js"));
+  const tmpOut = fs.mkdtempSync(path.join(os.tmpdir(), "fly-pack-"));
 
-    // 2. 复制资源（assets/ → zip 内 assets/）
-    if (fs.existsSync(FLY_ASSETS)) {
-      copyDirSync(FLY_ASSETS, path.join(staging, "assets"));
+  // 1. 调用 demo 标准打包命令，打包 dist/bundle.js + assets → zip
+  const packArgs = [
+    PACK_BUNDLE,
+    "--name",
+    BUNDLE_NAME,
+    "--version",
+    version,
+    "--key",
+    DEMO_KEY,
+    "--keyId",
+    "demo-key",
+    "--minAppVersion",
+    "1.0.0",
+    "--js",
+    bundleJs,
+    "--out",
+    tmpOut,
+  ];
+  if (fs.existsSync(FLY_ASSETS)) {
+    packArgs.push("--assets", FLY_ASSETS);
+  }
+  execFileSync(process.execPath, packArgs, { stdio: "inherit" });
+
+  // 2. 将 zip 落到 fly/dist
+  const zipName = `${BUNDLE_NAME}-${version}.zip`;
+  const zipTmp = path.join(tmpOut, zipName);
+  fs.mkdirSync(FLY_DIST, { recursive: true });
+  const zipPath = path.join(FLY_DIST, zipName);
+  fs.copyFileSync(zipTmp, zipPath);
+  const zipSha256 = sha256File(zipPath);
+  console.log(`结果: ${zipPath}`);
+  console.log(`  version   : ${version}`);
+  console.log(`  sha256    : ${zipSha256}`);
+
+  // 3. 复制到 demo 工程并更新 bundles.json
+  if (copy) {
+    const demoZip = path.join(DEMO_APP_JS, `${BUNDLE_NAME}.zip`);
+    fs.copyFileSync(zipPath, demoZip);
+    console.log(`已复制到  : ${demoZip}`);
+
+    const bundlesJsonPath = path.join(DEMO_APP_JS, "bundles.json");
+    let existing = { packages: [] };
+    if (fs.existsSync(bundlesJsonPath)) {
+      try {
+        existing = JSON.parse(fs.readFileSync(bundlesJsonPath, "utf8"));
+      } catch {
+        /* ignore */
+      }
     }
-
-    // 3. manifest（只声明代码）
-    const manifest = {
+    const entry = {
       name: BUNDLE_NAME,
       version,
-      keyId: "demo-key",
+      sha256: zipSha256,
       minAppVersion: "1.0.0",
-      entry: "bundle.js",
-      codeForm: "js",
-      files: [
-        {
-          path: "bundle.js",
-          sha256: sha256File(path.join(staging, "bundle.js")),
-        },
-      ],
+      label: "宇宙进化",
+      initialRoute: "/",
     };
-    const manifestStr = JSON.stringify(manifest, null, 2);
-    fs.writeFileSync(path.join(staging, "manifest.json"), manifestStr);
-
-    // 4. 签名
-    const privPem = fs.readFileSync(path.resolve(DEMO_KEY), "utf8");
-    const privateKey = crypto.createPrivateKey(privPem);
-    const sig = crypto.sign(null, Buffer.from(manifestStr), privateKey);
-    fs.writeFileSync(
-      path.join(staging, "manifest.sig"),
-      sig.toString("base64"),
+    const idx = (existing.packages || []).findIndex(
+      (p) => p.name === BUNDLE_NAME,
     );
-
-    // 5. 打 zip
-    const zipName = `${BUNDLE_NAME}-${version}.zip`;
-    const zipPath = path.join(FLY_DIST, zipName);
-    if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
-    execFileSync("zip", ["-r", "-X", "-q", zipPath, ".", "-x", "*.DS_Store"], {
-      cwd: staging,
-    });
-
-    const zipSha256 = sha256File(zipPath);
-    console.log(`打包完成: ${zipPath}`);
-    console.log(`  version   : ${version}`);
-    console.log(`  codeForm  : js`);
-    console.log(`  sha256    : ${zipSha256}`);
-
-    // 6. 复制到 demo 工程
-    if (copy) {
-      const demoZip = path.join(DEMO_APP_JS, `${BUNDLE_NAME}.zip`);
-      fs.copyFileSync(zipPath, demoZip);
-      console.log(`已复制到  : ${demoZip}`);
-
-      // 更新 bundles.json（只更新 game 条目，保留其余）
-      const bundlesJsonPath = path.join(DEMO_APP_JS, "bundles.json");
-      let existing = { packages: [] };
-      if (fs.existsSync(bundlesJsonPath)) {
-        try {
-          existing = JSON.parse(fs.readFileSync(bundlesJsonPath, "utf8"));
-        } catch {
-          /* ignore */
-        }
-      }
-      const idx = (existing.packages || []).findIndex(
-        (p) => p.name === BUNDLE_NAME,
-      );
-      const entry = {
-        name: BUNDLE_NAME,
-        version,
-        sha256: zipSha256,
-        minAppVersion: "1.0.0",
-        label: "宇宙进化",
-        initialRoute: "/",
-      };
-      if (idx >= 0) existing.packages[idx] = entry;
-      else existing.packages.push(entry);
-      fs.writeFileSync(
-        bundlesJsonPath,
-        JSON.stringify(existing, null, 2) + "\n",
-      );
-      console.log(`已更新 bundles.json`);
-    }
-  } finally {
-    fs.rmSync(staging, { recursive: true, force: true });
+    if (idx >= 0) existing.packages[idx] = entry;
+    else existing.packages.push(entry);
+    fs.writeFileSync(
+      bundlesJsonPath,
+      JSON.stringify(existing, null, 2) + "\n",
+    );
+    console.log(`已更新 bundles.json`);
   }
+
+  fs.rmSync(tmpOut, { recursive: true, force: true });
 }
 
 main();

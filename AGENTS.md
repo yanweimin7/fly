@@ -24,6 +24,18 @@ JSON DSL、并在 QuickJS 隔离环境中分发给 Flutter 的 Playground。它�
   然后通过 `ws://localhost:8080` 热重载已连接的 Flutter 客户端。按键：
   `r` 重新构建+重载，`a` 重新同步资源，`q` 退出。
 - `npm run lint` / `npm run lint:fix` —— 仅对 `src` 做 ESLint。
+- `npm run bundle:pack` —— 把 `dist/bundle.js` + `js/assets/` 签名打包成
+  `dist/game-<version>.zip`（不含拷贝）。需要 demo 签名密钥
+  （`fuickjs_demo/js/tools/bundle/bundle_signing_key.pem`）。
+- `npm run bundle:pack:copy` —— **发布到 demo 的标准流程**：同上打成 zip，
+  并拷贝到 `fuickjs_demo/app/assets/js/game.zip`，同时更新 `bundles.json`
+  中 `game` 条目的 sha256（保留其余包）。
+
+**空白页坑：fly 的 `initApp` 必须调 `Runtime.bindGlobals()`**（外加
+`Runtime.configure`）。缺了它 `globalThis.fuickjs.render/...` 不挂载，
+Flutter 无法发起首次页面渲染 → 加载 bundle 成功（打
+"Fly App Initialized"）、但整页空白且**没有任何报错**（连 `[Perf] page=...`
+渲染日志都没有）。与 demo 主 bundle / 旧 game-entry 对齐即可。
 
 验证改动是否生效要用 **WebSocket 热重载**，而不是 `console.log`
 （JS 日志会路由到 Flutter 的 logger）。在 `DevFuickAppPage` 打开之前，
@@ -53,12 +65,42 @@ JSON DSL、并在 QuickJS 隔离环境中分发给 Flutter 的 Playground。它�
 - esbuild 会把 bundle 中所有中文转义为 `\uXXXX`；搜索请用源码文本，
   不要用构建产物。
 
-## 发布到 demo
+## 与 demo 的分工（重要，勿覆盖）
 
-要把 fly 的功能正式上线到 demo：把源码拷贝到 `fuickjs_demo/js/src`，
-注册路由，然后跑完整 demo 链（`cd fuickjs_demo/js && npm run build &&
-npm run bundle:keys && npm run bundle:pack:all`，再 `flutter run` 重新
-烘焙资源）。demo **不支持**热重载，资源烘焙发生在 Flutter 构建期。
+fly 是**独立沙盒**，不是 demo game 的发布通道。demo 的 `game` bundle 是
+**完整版**，源码在 `fuickjs_demo/js/src`（`game-entry.tsx`、`game/`、
+`components/GameField.tsx/Hud.tsx/Joystick.tsx/Overlay.tsx/CaptureButton.tsx`、
+`pages/game.tsx`、`store/game.ts`、`game/textures.ts`），通过 demo 自己的
+链路发布：
+
+```
+cd fuickjs_demo/js && npm run build:game   # src/game-entry.tsx → app/assets/js/game.js
+&& npm run bundle:pack:all                 # 重新打包全部 zip + 更新 bundles.json
+# THEN in fuickjs_demo: flutter run        # 重新烘焙 assets 才会生效
+```
+
+- 该完整版带"升级"按钮、更丰富的引擎，是用户在 `flutter run` 看到的版本。
+- **fly 的简化原型（`fly/js/src`）不要写进 `game.zip`**；fly 的
+  `bundle:pack:copy` 仅用于测试 fly 自身产物到别的 Flutter 工程，不再拷贝到
+  demo。
+- 曾误用 fly 覆盖 demo `game.zip`（导致用户看到的画面从完整版变成简化版、
+  还一度空白）——勿再犯。
+
+### fly 自己的打包命令（查看产物用，不覆盖 demo）
+
+```
+npm run build                 # 生成 dist/bundle.js
+npm run bundle:pack           # 打包成 dist/game-<version>.zip（不含拷贝）
+npm run bundle:pack:copy      # 拷贝到 FLY_OUTPUT_DIR（若无则默认产物目录）
+```
+
+- 打包/拷贝需 demo 签名密钥（`fuickjs_demo/js/tools/bundle/bundle_signing_key.pem`，
+  缺则先 `cd fuickjs_demo/js && npm run bundle:keys`）。
+- zip 内已含 `js/assets/`（图片随 zip 下发；新加图片复制进
+  `fly/js/assets/images/` 后无需额外操作）。
+- JS 改动在 demo 里生效的唯一途径是重新 `flutter run`（demo 不支持热重载，
+  assets 在 Flutter 构建期烘焙）。fly 侧调试用 `npm run start` + WebSocket
+  热重载。
 
 ## OpenSpec 工作流
 
