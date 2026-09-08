@@ -1,7 +1,7 @@
 import React from "react";
 import { Stack, Positioned, Container, Image } from "fuickjs";
 import type { Entity, GameState } from "../store/game";
-import { VW, VH, CENTER_X, CENTER_Y, STAGES } from "../game/config";
+import { STAGES } from "../game/config";
 
 const MARGIN = 80;
 
@@ -73,15 +73,13 @@ const visFor = (power: number): Vis => {
 
 interface GameFieldProps {
   state: GameState;
+  screenW: number;
+  screenH: number;
 }
 
-/** 星空场地：相机让玩家居中，实体以绝对坐标 + 玩家偏移渲染，离屏裁剪。 */
-export default function GameField({ state }: GameFieldProps) {
+/** 星空场地：自由视角，实体以世界坐标直接渲染，离屏裁剪。 */
+export default function GameField({ state, screenW, screenH }: GameFieldProps) {
   const p = state.player;
-  // 相机：屏幕坐标 = 场地中心 + (实体世界坐标 - 玩家世界坐标)。无需缩放，
-  // 因为世界单位即像素，尺寸已由 STAGES[].r 决定（绘制与碰撞一致）。
-  const ox = CENTER_X - p.x;
-  const oy = CENTER_Y - p.y;
 
   const renderBody = (
     sx: number,
@@ -207,9 +205,14 @@ export default function GameField({ state }: GameFieldProps) {
 
   const bodies: React.ReactNode[] = [];
   for (const e of state.entities) {
-    const sx = e.x + ox;
-    const sy = e.y + oy;
-    if (sx < -MARGIN || sx > VW + MARGIN || sy < -MARGIN || sy > VH + MARGIN)
+    const sx = e.x;
+    const sy = e.y;
+    if (
+      sx < -MARGIN ||
+      sx > screenW + MARGIN ||
+      sy < -MARGIN ||
+      sy > screenH + MARGIN
+    )
       continue;
     bodies.push(
       <React.Fragment key={`e${e.id}`}>
@@ -221,8 +224,8 @@ export default function GameField({ state }: GameFieldProps) {
   const sats: React.ReactNode[] = [];
   for (const s of state.satellites) {
     const a = s.angle ?? 0;
-    const sx = CENTER_X + Math.cos(a) * (s.orbitRadius ?? 0);
-    const sy = CENTER_Y + Math.sin(a) * (s.orbitRadius ?? 0);
+    const sx = p.x + Math.cos(a) * (s.orbitRadius ?? 0);
+    const sy = p.y + Math.sin(a) * (s.orbitRadius ?? 0);
     sats.push(
       <React.Fragment key={`s${s.id}`}>
         {renderBody(sx, sy, s, false)}
@@ -232,11 +235,11 @@ export default function GameField({ state }: GameFieldProps) {
 
   return (
     <Stack>
-      <Container width={VW} height={VH} color="#05060f" />
+      {/* 背景（黑色宇宙 + 亮星）由页面层的 StarField 铺满全屏，这里只绘游戏实体 */}
       {bodies}
       {sats}
       <React.Fragment key="player">
-        {renderBody(CENTER_X, CENTER_Y, p, true)}
+        {renderBody(p.x, p.y, p, true)}
       </React.Fragment>
     </Stack>
   );

@@ -12,12 +12,19 @@
 export const TICK_RATE = 30;
 export const DT = 1 / TICK_RATE;
 
-/** 虚拟视口尺寸（竖屏）。场地以 SizedBox 固定尺寸居中。 */
+/** 默认虚拟视口尺寸（竖屏）—— 仅在 useMediaQuery 未就绪时回退使用。 */
 export const VW = 360;
 export const VH = 640;
-/** 玩家在场地中的屏幕中心坐标（相机始终让玩家居中）。 */
-export const CENTER_X = VW / 2;
-export const CENTER_Y = VH / 2;
+
+/** 运行时真实屏幕尺寸（由 game.tsx 在 useMediaQuery 就绪后写入）。 */
+let _screenW = VW;
+let _screenH = VH;
+export const setScreenSize = (w: number, h: number) => {
+  _screenW = w;
+  _screenH = h;
+};
+export const getScreenW = () => _screenW;
+export const getScreenH = () => _screenH;
 
 /** 玩家移动速度（px/s），为屏幕上恒定速度，与等级无关。 */
 export const PLAYER_SPEED = 95;
@@ -32,14 +39,29 @@ export const ORBIT_SPEED = 0.7;
 export const SPAWN_GAP_MIN = 24;
 export const SPAWN_GAP_MAX = 70;
 
-/** 超出该距离（像素）的天体回收并重生（略大于半屏，保证离开视野后再回收）。 */
-export const DESPAWN_DIST = 430;
+/** 超出该距离（像素）的天体回收并重生（按屏幕对角线动态计算，保证离开视野后再回收）。 */
+export const despawnDist = (): number =>
+  Math.ceil(Math.sqrt(_screenW * _screenW + _screenH * _screenH) * 0.55);
+
+/** 盲区生成间隔（秒）：零陨石开局后，每隔该间隔在盲区生成 1 颗自由天体。 */
+export const SPAWN_INTERVAL = 1;
+
+/** 盲区环带：天体生成半径范围（玩家中心到生成点的像素距离）。
+ * 按屏幕最大半边动态计算，保证天体在屏幕外生成。 */
+export const blindZoneMin = (): number =>
+  Math.ceil(Math.max(_screenW, _screenH) * 0.95);
+export const blindZoneMax = (): number => despawnDist();
+
+/** 盲区天体向内漂移速度范围（px/s）：中度偏缓，保证开局后数秒内入屏，
+ * 又不至于太快（避免陨石飞掠难追）。玩家速度（PLAYER_SPEED=95）明显更快，追得上。 */
+export const BLIND_ZONE_SPEED_MIN = 20;
+export const BLIND_ZONE_SPEED_MAX = 40;
 
 /** 捕获半径：玩家半径之外多少像素内的行星可被捕获为卫星。 */
 export const CAPTURE_RANGE = 26;
 
-/** 同屏自由天体目标数量。 */
-export const TARGET_ENTITIES = 18;
+/** 同屏自由天体目标数量（稀疏场，须探索寻找）。 */
+export const TARGET_ENTITIES = 12;
 
 /** 单次受击（无卫星抵挡时）扣血。 */
 export const DAMAGE = 25;
@@ -183,6 +205,13 @@ export const STAGES: StageDef[] = [
 
 /** 黑洞达成后，累计物质达到该值进入「另一个宇宙」结局。 */
 export const FINAL_MATTER = 5000;
+
+/** 宇宙结局转场三阶段时长（秒）：
+ * 0~COLLAPSE：所有物质团聚成一个蓝点；COLLAPSE~EXPLODE：蓝点爆炸成宇宙；
+ * EXPLODE~TOTAL：星海扩散铺满，随后进入结局界面。 */
+export const TRANSFORM_COLLAPSE = 1.2;
+export const TRANSFORM_EXPLODE = 2.4;
+export const TRANSFORM_TOTAL = 3.0;
 
 /** 取某等级的 0 基索引（用于数组访问）。 */
 export const stageIndexFromId = (id: number): number => id - 1;

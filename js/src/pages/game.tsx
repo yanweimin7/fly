@@ -7,11 +7,20 @@ import {
   SizedBox,
   GestureDetector,
   Text,
+  useMediaQuery,
 } from "fuickjs";
 import { GameStore, InputState } from "../store/game";
 import { step, tryCapture, forceLevelUp } from "../game/engine";
-import { STAGES, VW, VH, TICK_RATE, DT, CAPTURE_RANGE } from "../game/config";
+import {
+  STAGES,
+  TICK_RATE,
+  DT,
+  CAPTURE_RANGE,
+  setScreenSize,
+} from "../game/config";
 import GameField from "../components/GameField";
+import TransformEffect from "../components/TransformEffect";
+import StarField from "../components/StarField";
 import Hud from "../components/Hud";
 import Joystick from "../components/Joystick";
 import CaptureButton from "../components/CaptureButton";
@@ -36,6 +45,11 @@ export default function GamePage() {
     return () => clearInterval(id);
   }, [store]);
 
+  const mq = useMediaQuery();
+  const W = mq.screenWidth > 0 ? mq.screenWidth : 360;
+  const H = mq.screenHeight > 0 ? mq.screenHeight : 640;
+  setScreenSize(W, H);
+
   const state = store.getState();
   const canCapture = STAGES[state.stageIndex].canCapture;
   const hasCapturable =
@@ -49,75 +63,82 @@ export default function GamePage() {
 
   return (
     <Scaffold backgroundColor="#000000">
-      <Container alignment="center" color="#000000">
-        <SizedBox width={VW} height={VH}>
-          <Stack>
-            <GameField state={state} />
+      <Stack>
+        {/* 全屏背景：星空图以玩家为中心取窗显示，随移动跟随变化 */}
+        <StarField />
+        <Container color="transparent">
+          <SizedBox width={W} height={H}>
+            <Stack>
+              <GameField state={state} screenW={W} screenH={H} />
+              <TransformEffect state={state} screenW={W} screenH={H} />
 
-            <Positioned left={0} top={0} width={VW}>
-              <Hud state={state} />
-            </Positioned>
+              <Positioned left={0} top={0} width={W}>
+                <Hud state={state} screenW={W} />
+              </Positioned>
 
-            <Positioned left={10} top={120}>
-              <GestureDetector
-                onTap={() => {
-                  forceLevelUp(store.getState());
-                  store.notify();
-                }}
-              >
-                <Container
-                  width={56}
-                  height={56}
-                  alignment="center"
-                  decoration={{
-                    color: "rgba(76,175,80,0.85)",
-                    borderRadius: 28,
-                    border: { color: "#ffffff", width: 2 },
+              <Positioned left={10} top={120}>
+                <GestureDetector
+                  onTap={() => {
+                    forceLevelUp(store.getState());
+                    store.notify();
                   }}
                 >
-                  <Text
-                    text="升级"
-                    color="#ffffff"
-                    fontSize={16}
-                    fontWeight="bold"
-                  />
-                </Container>
-              </GestureDetector>
-            </Positioned>
-
-            <Positioned left={18} bottom={28}>
-              <Joystick inputRef={inputRef} />
-            </Positioned>
-
-            <Positioned right={22} bottom={40}>
-              <CaptureButton
-                enabled={hasCapturable}
-                onCapture={() => {
-                  tryCapture(store.getState());
-                  store.notify();
-                }}
-              />
-            </Positioned>
-
-            {state.hitFlash > 0 && (
-              <Positioned left={0} top={0} right={0} bottom={0}>
-                <Container color="rgba(255,0,0,0.22)" />
+                  <Container
+                    width={56}
+                    height={56}
+                    alignment="center"
+                    decoration={{
+                      color: "rgba(76,175,80,0.85)",
+                      borderRadius: 28,
+                      border: { color: "#ffffff", width: 2 },
+                    }}
+                  >
+                    <Text
+                      text="升级"
+                      color="#ffffff"
+                      fontSize={16}
+                      fontWeight="bold"
+                    />
+                  </Container>
+                </GestureDetector>
               </Positioned>
-            )}
 
-            {state.status !== "playing" && (
-              <Positioned left={0} top={0} right={0} bottom={0}>
-                <Overlay
-                  win={state.status === "win"}
-                  stageName={stageName}
-                  matter={state.matter}
-                  onRestart={() => store.reset()}
+              <Positioned left={18} bottom={28}>
+                <Joystick inputRef={inputRef} />
+              </Positioned>
+
+              <Positioned right={22} bottom={40}>
+                <CaptureButton
+                  enabled={hasCapturable}
+                  onCapture={() => {
+                    tryCapture(store.getState());
+                    store.notify();
+                  }}
                 />
               </Positioned>
-            )}
-          </Stack>
-        </SizedBox>
-      </Container>
+
+              {state.hitFlash > 0 && (
+                <Positioned left={0} top={0} right={0} bottom={0}>
+                  <Container color="rgba(255,0,0,0.22)" />
+                </Positioned>
+              )}
+
+              {state.status !== "playing" && (
+                <Positioned left={0} top={0} right={0} bottom={0}>
+                  <Overlay
+                    win={state.status === "win"}
+                    stageName={stageName}
+                    matter={state.matter}
+                    onRestart={() => store.reset()}
+                    screenW={W}
+                    screenH={H}
+                  />
+                </Positioned>
+              )}
+            </Stack>
+          </SizedBox>
+        </Container>
+      </Stack>
     </Scaffold>
   );
 }

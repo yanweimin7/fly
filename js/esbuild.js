@@ -64,6 +64,10 @@ async function build() {
         __dirname,
         "../../fuickjs_framework/fuickjs/dist/index.js",
       ),
+      "@fuickjs-community/video_player": path.resolve(
+        __dirname,
+        "../../fuickjs_community/video_player/dist/index.js",
+      ),
     },
   };
 

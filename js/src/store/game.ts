@@ -49,11 +49,17 @@ export interface GameState {
   time: number;
   /** 记录「比玩家明显更大」天体的生成时间戳，用于每分钟生成数限速。 */
   bigSpawnTimes: number[];
+  /** 下一次盲区生成时刻（绝对游戏时间，秒）。零陨石开局后按间隔生成。 */
+  nextSpawnAt: number;
   nextEntityId: number;
   /** 受击闪烁剩余帧。 */
   hitFlash: number;
   /** 卫星抵挡闪烁剩余帧。 */
   blockFlash: number;
+  /** 是否处于「宇宙结局转场」动画（团聚成蓝点 → 爆炸 → 化为宇宙）。 */
+  transform: boolean;
+  /** 转场已进行时长（秒），驱动各个阶段。 */
+  transformT: number;
 }
 
 /** 摇杆输入：dx/dy 为相对起点的位移（像素），intensity 为 0~1 强度。 */

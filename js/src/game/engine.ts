@@ -10,11 +10,17 @@ import type { Entity, GameState, InputState } from "../store/game";
 import {
   STAGES,
   FINAL_MATTER,
+  TRANSFORM_TOTAL,
   DT,
   PLAYER_SPEED,
   SPAWN_GAP_MIN,
   SPAWN_GAP_MAX,
-  DESPAWN_DIST,
+  despawnDist,
+  SPAWN_INTERVAL,
+  blindZoneMin,
+  blindZoneMax,
+  BLIND_ZONE_SPEED_MIN,
+  BLIND_ZONE_SPEED_MAX,
   CAPTURE_RANGE,
   TARGET_ENTITIES,
   DAMAGE,
@@ -36,7 +42,8 @@ function dist(ax: number, ay: number, bx: number, by: number): number {
   return Math.hypot(ax - bx, ay - by);
 }
 
-/** 创建一个新游戏状态（玩家为陨石，生成初始天体）。 */
+/** 创建新游戏状态：零陨石开局（玩家独自，场上无自由天体；
+ * 首颗陨石在 SPAWN_INTERVAL 后经盲区生成，须主动寻找）。 */
 export function createGame(): GameState {
   const state: GameState = {
     status: "playing",
@@ -59,13 +66,15 @@ export function createGame(): GameState {
     maxHealth: MAX_HEALTH,
     time: 0,
     bigSpawnTimes: [],
+    nextSpawnAt: SPAWN_INTERVAL,
     nextEntityId: 1,
     hitFlash: 0,
     blockFlash: 0,
+    transform: false,
+    transformT: 0,
   };
-  while (state.entities.length < TARGET_ENTITIES) {
-    spawnEntity(state);
-  }
+  // 不再在 createGame 中填充初始天体。
+  // 第一批盲区天体将在 SPAWN_INTERVAL 后由 step() 的时间闸门触发，高速漂入。
   return state;
 }
 
@@ -74,8 +83,12 @@ export function createGame(): GameState {
  * 等级分布相对玩家当前等级：约一半明显更低（可吞噬），一小半同级，一小部分明显更高（需躲避）。
  * 同级再分两类：约半数真实半径比玩家小（可吞噬），约半数与玩家相当/更大（不可吞噬，撞击掉血）。
  * 生成距离以「屏幕像素间隙」衡量，避免真实半径巨大的高阶天体被生成在极远处而瞬间回收。
+ * @param placement 'near'=屏幕边缘附近（进化引导等用）；'blind'=盲区环带（屏幕外，向内漂移入屏）。
  */
-export function spawnEntity(state: GameState): void {
+export function spawnEntity(
+  state: GameState,
+  placement: "near" | "blind" = "near",
+): void {
   const pr = state.stageIndex;
   const p = state.player;
   const r = Math.random();
@@ -122,17 +135,26 @@ export function spawnEntity(state: GameState): void {
     Math.min(MATTER_CAP, Math.round(radius * 0.6)),
   );
   const ang = Math.random() * Math.PI * 2;
-  // 生成距离 = 双方半径 + 像素间隙，保证天体出现在玩家屏幕边缘附近且不重叠。
-  const d = p.radius + radius + rand(SPAWN_GAP_MIN, SPAWN_GAP_MAX);
-  const sp = rand(8, 20);
-  const sang = Math.random() * Math.PI * 2;
+  // 生成距离：near=双方半径+像素间隙（屏幕边缘附近）；blind=盲区环带（屏幕外）。
+  const d =
+    placement === "blind"
+      ? rand(blindZoneMin(), blindZoneMax())
+      : p.radius + radius + rand(SPAWN_GAP_MIN, SPAWN_GAP_MAX);
+  // 速度：near=缓速随机漂移；blind=较高速向内入屏（否则从屏幕外飘入需 10~20 秒，画面显得死寂）。
+  const sp =
+    placement === "blind"
+      ? rand(BLIND_ZONE_SPEED_MIN, BLIND_ZONE_SPEED_MAX)
+      : rand(8, 20);
+  // 速度方向：near=随机；blind=指向玩家，自然从屏幕边缘漂移入屏。
+  const velAng =
+    placement === "blind" ? ang + Math.PI : Math.random() * Math.PI * 2;
 
   state.entities.push({
     id: state.nextEntityId++,
     x: p.x + Math.cos(ang) * d,
     y: p.y + Math.sin(ang) * d,
-    vx: Math.cos(sang) * sp,
-    vy: Math.sin(sang) * sp,
+    vx: Math.cos(velAng) * sp,
+    vy: Math.sin(velAng) * sp,
     radius,
     power,
     matterValue,
@@ -140,7 +162,8 @@ export function spawnEntity(state: GameState): void {
   });
 }
 
-/** 保证玩家周围始终存在「下一等级」天体（进化链的直接目标）。不计入大天体限速。 */
+/** 保证玩家周围始终存在「下一等级」天体（进化链的直接目标）。不计入大天体限速。
+ * 与常规生成一致走盲区放置：从屏幕外漂移入屏，不破坏「开局零陨石/须探索」的体验。 */
 export function forceSpawnNext(state: GameState): void {
   const pr = state.stageIndex;
   if (pr >= STAGES.length - 1) return;
@@ -152,9 +175,11 @@ export function forceSpawnNext(state: GameState): void {
     Math.min(MATTER_CAP, Math.round(radius * 0.6)),
   );
   const ang = Math.random() * Math.PI * 2;
-  const d = p.radius + radius + rand(SPAWN_GAP_MIN, SPAWN_GAP_MAX);
-  const sp = rand(8, 20);
-  const sang = Math.random() * Math.PI * 2;
+  const d = rand(blindZoneMin(), blindZoneMax());
+  // 与盲区常规生成一致，较高速指向玩家，快速入屏。
+  const sp = rand(BLIND_ZONE_SPEED_MIN, BLIND_ZONE_SPEED_MAX);
+  // 指向玩家，自然入屏。
+  const sang = ang + Math.PI;
   state.entities.push({
     id: state.nextEntityId++,
     x: p.x + Math.cos(ang) * d,
@@ -270,6 +295,17 @@ export function step(
   dt: number = DT,
 ): void {
   if (state.status !== "playing") return;
+
+  // 宇宙结局转场：冻结玩法，仅推进时间线；结束时置 win（见文末）。
+  if (state.transform) {
+    state.time += dt;
+    state.transformT += dt;
+    if (state.transformT >= TRANSFORM_TOTAL) {
+      state.status = "win";
+    }
+    return;
+  }
+
   state.time += dt;
   if (state.hitFlash > 0) state.hitFlash--;
   if (state.blockFlash > 0) state.blockFlash--;
@@ -304,14 +340,25 @@ export function step(
   // 移除被吞噬 / 撞击消耗的天体。
   state.entities = state.entities.filter((e) => !e.removed);
 
-  // 回收过远天体。
+  // 回收过远天体（只减不补）。
   state.entities = state.entities.filter(
-    (e) => dist(state.player.x, state.player.y, e.x, e.y) <= DESPAWN_DIST,
+    (e) => dist(state.player.x, state.player.y, e.x, e.y) <= despawnDist(),
   );
 
-  // 维持同屏数量。
-  while (state.entities.length < TARGET_ENTITIES) {
-    spawnEntity(state);
+  // 盲区定时生成：达到生成间隔时在盲区补 1 颗（上限约束）或开局填充，被吞噬/回收的天体
+  // 不即时复活，玩家须移动探索寻找从屏幕外飘入的新陨石。
+  // 开局填充：首帧即铺满 TARGET_ENTITIES(12) 颗于盲区，避免「零陨石+纯黑背景」整屏死寂，
+  // 同时保持零陨石在玩家身边、须探索的核心体验；随后转为每秒 1 颗补充。
+  if (state.time < SPAWN_INTERVAL && state.entities.length === 0) {
+    while (state.entities.length < TARGET_ENTITIES) {
+      spawnEntity(state, "blind");
+    }
+  }
+  if (state.time >= state.nextSpawnAt) {
+    if (state.entities.length < TARGET_ENTITIES) {
+      spawnEntity(state, "blind");
+    }
+    state.nextSpawnAt = state.time + SPAWN_INTERVAL;
   }
 
   // 进化链保底：周围始终存在「下一等级」天体，确保可一路向上进化。
@@ -334,8 +381,17 @@ export function step(
     state.matter = STAGES[state.stageIndex].reachMatter;
   }
 
-  // 结局：宇宙且物质达到 5000 → 另一个宇宙。
-  if (state.stageIndex === STAGES.length - 1 && state.matter >= FINAL_MATTER) {
-    state.status = "win";
+  // 结局：宇宙且物质达到 5000 → 进入「团聚成蓝点 → 爆炸 → 化为宇宙」转场。
+  // （转场期间由 step 顶部的 transform 冻结分支推进时间线，并在结束时置 win。）
+  if (
+    !state.transform &&
+    state.stageIndex === STAGES.length - 1 &&
+    state.matter >= FINAL_MATTER
+  ) {
+    state.transform = true;
+    state.transformT = 0;
+    // 转场期间冻结实体，不再结算。
+    state.entities = [];
+    state.satellites = [];
   }
 }

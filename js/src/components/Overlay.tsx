@@ -1,12 +1,13 @@
 import React from "react";
 import { Column, Container, Text, SizedBox, GestureDetector } from "fuickjs";
-import { VW, VH } from "../game/config";
 
 interface OverlayProps {
   win: boolean;
   stageName: string;
   matter: number;
   onRestart: () => void;
+  screenW: number;
+  screenH: number;
 }
 
 /** 游戏结束 / 「另一个宇宙」结局界面。 */
@@ -15,11 +16,13 @@ export default function Overlay({
   stageName,
   matter,
   onRestart,
+  screenW,
+  screenH,
 }: OverlayProps) {
   return (
     <Container
-      width={VW}
-      height={VH}
+      width={screenW}
+      height={screenH}
       color="rgba(0,0,0,0.72)"
       alignment="center"
     >

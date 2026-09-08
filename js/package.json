@@ -14,6 +14,7 @@
     "lint:fix": "eslint src --fix"
   },
   "dependencies": {
+    "@fuickjs-community/video_player": "file:../../fuickjs_community/video_player",
     "fuickjs": "file:../../fuickjs_framework/fuickjs",
     "react": "^19.2.0",
     "react-reconciler": "^0.33.0"

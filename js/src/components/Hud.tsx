@@ -7,14 +7,15 @@ import {
   LinearProgressIndicator,
 } from "fuickjs";
 import type { GameState } from "../store/game";
-import { STAGES, FINAL_MATTER, VW } from "../game/config";
+import { STAGES, FINAL_MATTER } from "../game/config";
 
 interface HudProps {
   state: GameState;
+  screenW: number;
 }
 
 /** 顶部状态 HUD：等级名、物质、升级进度、生命值。 */
-export default function Hud({ state }: HudProps) {
+export default function Hud({ state, screenW }: HudProps) {
   const cur = STAGES[state.stageIndex];
   let pct: number;
   let nextName: string;
@@ -32,7 +33,7 @@ export default function Hud({ state }: HudProps) {
   const hp = Math.max(0, Math.min(1, state.health / maxH));
 
   return (
-    <Container width={VW} padding={10} color="rgba(0,0,0,0.35)">
+    <Container width={screenW} padding={10} color="rgba(0,0,0,0.35)">
       <Column crossAxisAlignment="start">
         <Text
           text={`${cur.name}　物质 ${Math.floor(state.matter)}`}
