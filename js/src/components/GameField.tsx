@@ -77,9 +77,13 @@ interface GameFieldProps {
   screenH: number;
 }
 
-/** 星空场地：自由视角，实体以世界坐标直接渲染，离屏裁剪。 */
+/** 星空场地：摄像机跟随玩家，玩家固定在屏幕中央，其他实体随世界坐标偏移。 */
 export default function GameField({ state, screenW, screenH }: GameFieldProps) {
   const p = state.player;
+
+  // 摄像机偏移：让玩家始终在屏幕中央
+  const camX = p.x - screenW / 2;
+  const camY = p.y - screenH / 2;
 
   const renderBody = (
     sx: number,
@@ -90,17 +94,14 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
     const r = body.radius;
     const d = r * 2;
 
+    // 世界坐标转屏幕坐标：减去摄像机偏移
+    const screenSX = isPlayer ? screenW / 2 : sx - camX;
+    const screenSY = isPlayer ? screenH / 2 : sy - camY;
+
     // 所有等级都使用3D星球图片
     const imgSrc = planetImg(body.power, body.id);
-    if (isPlayer) {
-      return (
-        <Positioned left={sx - r} top={sy - r} width={d} height={d}>
-          <Image src={imgSrc} width={d} height={d} fit="cover" />
-        </Positioned>
-      );
-    }
     return (
-      <Positioned left={sx - r} top={sy - r} width={d} height={d}>
+      <Positioned left={screenSX - r} top={screenSY - r} width={d} height={d}>
         <Image src={imgSrc} width={d} height={d} fit="cover" />
       </Positioned>
     );
@@ -110,11 +111,14 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
   for (const e of state.entities) {
     const sx = e.x;
     const sy = e.y;
+    // 屏幕坐标用于离屏裁剪
+    const screenSX = sx - camX;
+    const screenSY = sy - camY;
     if (
-      sx < -MARGIN ||
-      sx > screenW + MARGIN ||
-      sy < -MARGIN ||
-      sy > screenH + MARGIN
+      screenSX < -MARGIN ||
+      screenSX > screenW + MARGIN ||
+      screenSY < -MARGIN ||
+      screenSY > screenH + MARGIN
     )
       continue;
     bodies.push(
