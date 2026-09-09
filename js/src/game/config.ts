@@ -178,7 +178,7 @@ export const STAGES: StageDef[] = [
     id: 9,
     name: "中子星",
     reachMatter: 3500,
-    r: 18,
+    r: 14,
     color: "#b39ddb",
     canCapture: true,
     glow: true,
