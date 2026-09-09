@@ -65,7 +65,7 @@ export default function GamePage() {
     <Scaffold backgroundColor="#000000">
       <Stack>
         {/* 全屏背景：星空图以玩家为中心取窗显示，随移动跟随变化 */}
-        <StarField />
+        <StarField playerX={state.player.x} playerY={state.player.y} />
         <Container color="transparent">
           <SizedBox width={W} height={H}>
             <Stack>
