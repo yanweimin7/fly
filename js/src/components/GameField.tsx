@@ -77,31 +77,18 @@ interface GameFieldProps {
   screenH: number;
 }
 
-/** 星空场地：摄像机跟随玩家，玩家固定在屏幕中央，其他实体随世界坐标偏移。 */
+/** 星空场地：实体以屏幕坐标直接渲染，玩家在屏幕上自由移动。 */
 export default function GameField({ state, screenW, screenH }: GameFieldProps) {
   const p = state.player;
 
-  // 摄像机偏移：让玩家始终在屏幕中央
-  const camX = p.x - screenW / 2;
-  const camY = p.y - screenH / 2;
-
-  const renderBody = (
-    sx: number,
-    sy: number,
-    body: Entity,
-    isPlayer: boolean,
-  ) => {
+  const renderBody = (sx: number, sy: number, body: Entity) => {
     const r = body.radius;
     const d = r * 2;
-
-    // 世界坐标转屏幕坐标：减去摄像机偏移
-    const screenSX = isPlayer ? screenW / 2 : sx - camX;
-    const screenSY = isPlayer ? screenH / 2 : sy - camY;
 
     // 所有等级都使用3D星球图片
     const imgSrc = planetImg(body.power, body.id);
     return (
-      <Positioned left={screenSX - r} top={screenSY - r} width={d} height={d}>
+      <Positioned left={sx - r} top={sy - r} width={d} height={d}>
         <Image src={imgSrc} width={d} height={d} fit="cover" />
       </Positioned>
     );
@@ -111,20 +98,15 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
   for (const e of state.entities) {
     const sx = e.x;
     const sy = e.y;
-    // 屏幕坐标用于离屏裁剪
-    const screenSX = sx - camX;
-    const screenSY = sy - camY;
     if (
-      screenSX < -MARGIN ||
-      screenSX > screenW + MARGIN ||
-      screenSY < -MARGIN ||
-      screenSY > screenH + MARGIN
+      sx < -MARGIN ||
+      sx > screenW + MARGIN ||
+      sy < -MARGIN ||
+      sy > screenH + MARGIN
     )
       continue;
     bodies.push(
-      <React.Fragment key={`e${e.id}`}>
-        {renderBody(sx, sy, e, false)}
-      </React.Fragment>,
+      <React.Fragment key={`e${e.id}`}>{renderBody(sx, sy, e)}</React.Fragment>,
     );
   }
 
@@ -134,20 +116,16 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
     const sx = p.x + Math.cos(a) * (s.orbitRadius ?? 0);
     const sy = p.y + Math.sin(a) * (s.orbitRadius ?? 0);
     sats.push(
-      <React.Fragment key={`s${s.id}`}>
-        {renderBody(sx, sy, s, false)}
-      </React.Fragment>,
+      <React.Fragment key={`s${s.id}`}>{renderBody(sx, sy, s)}</React.Fragment>,
     );
   }
 
   return (
-    <Stack>
+    <Stack width={screenW} height={screenH}>
       {/* 背景（黑色宇宙 + 亮星）由页面层的 StarField 铺满全屏，这里只绘游戏实体 */}
       {bodies}
       {sats}
-      <React.Fragment key="player">
-        {renderBody(p.x, p.y, p, true)}
-      </React.Fragment>
+      <React.Fragment key="player">{renderBody(p.x, p.y, p)}</React.Fragment>
     </Stack>
   );
 }

@@ -41,15 +41,15 @@ export const SPAWN_GAP_MAX = 70;
 
 /** 超出该距离（像素）的天体回收并重生（按屏幕对角线动态计算，保证离开视野后再回收）。 */
 export const despawnDist = (): number =>
-  Math.ceil(Math.sqrt(_screenW * _screenW + _screenH * _screenH) * 0.55);
+  Math.ceil(Math.sqrt(_screenW * _screenW + _screenH * _screenH) * 0.6);
 
 /** 盲区生成间隔（秒）：零陨石开局后，每隔该间隔在盲区生成 1 颗自由天体。 */
 export const SPAWN_INTERVAL = 1;
 
 /** 盲区环带：天体生成半径范围（玩家中心到生成点的像素距离）。
- * 按屏幕最大半边动态计算，保证天体在屏幕外生成。 */
+ * 使用屏幕对角线的一半，保证天体在屏幕外生成且各方向入屏距离均匀。 */
 export const blindZoneMin = (): number =>
-  Math.ceil(Math.max(_screenW, _screenH) * 0.95);
+  Math.ceil(Math.sqrt(_screenW * _screenW + _screenH * _screenH) * 0.52);
 export const blindZoneMax = (): number => despawnDist();
 
 /** 盲区天体向内漂移速度范围（px/s）：中度偏缓，保证开局后数秒内入屏，
@@ -106,7 +106,7 @@ export const STAGES: StageDef[] = [
     id: 1,
     name: "陨石",
     reachMatter: 0,
-    r: 5,
+    r: 6,
     color: "#9e9e9e",
     canCapture: false,
     glow: false,
@@ -115,7 +115,7 @@ export const STAGES: StageDef[] = [
     id: 2,
     name: "小行星",
     reachMatter: 100,
-    r: 9,
+    r: 11,
     color: "#a1887f",
     canCapture: false,
     glow: false,
@@ -124,7 +124,7 @@ export const STAGES: StageDef[] = [
     id: 3,
     name: "矮星",
     reachMatter: 300,
-    r: 14,
+    r: 18,
     color: "#ffcc80",
     canCapture: false,
     glow: false,
@@ -133,7 +133,7 @@ export const STAGES: StageDef[] = [
     id: 4,
     name: "岩石行星",
     reachMatter: 800,
-    r: 20,
+    r: 25,
     color: "#8d6e63",
     canCapture: true,
     glow: false,
@@ -142,7 +142,7 @@ export const STAGES: StageDef[] = [
     id: 5,
     name: "气态行星",
     reachMatter: 1000,
-    r: 27,
+    r: 34,
     color: "#ffb74d",
     canCapture: true,
     glow: false,
@@ -151,7 +151,7 @@ export const STAGES: StageDef[] = [
     id: 6,
     name: "矮恒星",
     reachMatter: 1500,
-    r: 35,
+    r: 44,
     color: "#fff176",
     canCapture: true,
     glow: true,
@@ -160,7 +160,7 @@ export const STAGES: StageDef[] = [
     id: 7,
     name: "恒星",
     reachMatter: 2000,
-    r: 45,
+    r: 56,
     color: "#ffd54f",
     canCapture: true,
     glow: true,
@@ -169,7 +169,7 @@ export const STAGES: StageDef[] = [
     id: 8,
     name: "超巨星",
     reachMatter: 3000,
-    r: 57,
+    r: 71,
     color: "#ff7043",
     canCapture: true,
     glow: true,
@@ -178,7 +178,7 @@ export const STAGES: StageDef[] = [
     id: 9,
     name: "中子星",
     reachMatter: 3500,
-    r: 14,
+    r: 18,
     color: "#b39ddb",
     canCapture: true,
     glow: true,
@@ -187,7 +187,7 @@ export const STAGES: StageDef[] = [
     id: 10,
     name: "黑洞",
     reachMatter: 4000,
-    r: 84,
+    r: 105,
     color: "#000000",
     canCapture: true,
     glow: true,
@@ -196,7 +196,7 @@ export const STAGES: StageDef[] = [
     id: 11,
     name: "宇宙",
     reachMatter: 5000,
-    r: 100,
+    r: 125,
     color: "#ffffff",
     canCapture: true,
     glow: true,

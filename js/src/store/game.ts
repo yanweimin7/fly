@@ -77,8 +77,8 @@ export class GameStore {
   private state: GameState;
   private listeners = new Set<() => void>();
 
-  constructor() {
-    this.state = createGame();
+  constructor(screenW?: number, screenH?: number) {
+    this.state = createGame(screenW, screenH);
   }
 
   getState(): GameState {
@@ -104,8 +104,8 @@ export class GameStore {
   }
 
   /** 重新开始一局。 */
-  reset(): void {
-    this.setState(createGame());
+  reset(screenW?: number, screenH?: number): void {
+    this.setState(createGame(screenW, screenH));
   }
 }
 

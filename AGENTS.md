@@ -65,33 +65,26 @@ Flutter 无法发起首次页面渲染 → 加载 bundle 成功（打
 - esbuild 会把 bundle 中所有中文转义为 `\uXXXX`；搜索请用源码文本，
   不要用构建产物。
 
-## 与 demo 的分工（重要，勿覆盖）
+## 与 demo 的发布关系
 
-fly 是**独立沙盒**，不是 demo game 的发布通道。demo 的 `game` bundle 是
-**完整版**，源码在 `fuickjs_demo/js/src`（`game-entry.tsx`、`game/`、
-`components/GameField.tsx/Hud.tsx/Joystick.tsx/Overlay.tsx/CaptureButton.tsx`、
-`pages/game.tsx`、`store/game.ts`、`game/textures.ts`），通过 demo 自己的
-链路发布：
+`npm run bundle:pack:copy` 是**发布到 demo 的标准流程**（与命令节一致）：把
+fly 的 `dist/bundle.js` + `js/assets/` 签名打包成 zip，并**覆盖**
+`fuickjs_demo/app/assets/js/game.zip`，同时更新 `bundles.json` 中 `game`
+条目的 sha256（保留其余包）。demo 的 `game` 因此由 fly 的产物决定。
 
-```
-cd fuickjs_demo/js && npm run build:game   # src/game-entry.tsx → app/assets/js/game.js
-&& npm run bundle:pack:all                 # 重新打包全部 zip + 更新 bundles.json
-# THEN in fuickjs_demo: flutter run        # 重新烘焙 assets 才会生效
-```
+- JS 改动在 demo 里生效的唯一途径是**重新 `flutter run`**（demo 不支持
+  热重载，assets 在 Flutter 构建期烘焙）。
+- 若日后需要完全独立、不随 fly 变动的完整版引擎，可保留一套 demo 自己的
+  源码（如 `fuickjs_demo/js/src` 的 `game-entry.tsx`、`game/` 等），走 demo
+  链路发布：`cd fuickjs_demo/js && npm run build:game
+  && npm run bundle:pack:all`，再重新 `flutter run`。
 
-- 该完整版带"升级"按钮、更丰富的引擎，是用户在 `flutter run` 看到的版本。
-- **fly 的简化原型（`fly/js/src`）不要写进 `game.zip`**；fly 的
-  `bundle:pack:copy` 仅用于测试 fly 自身产物到别的 Flutter 工程，不再拷贝到
-  demo。
-- 曾误用 fly 覆盖 demo `game.zip`（导致用户看到的画面从完整版变成简化版、
-  还一度空白）——勿再犯。
-
-### fly 自己的打包命令（查看产物用，不覆盖 demo）
+### fly 自己的打包命令
 
 ```
 npm run build                 # 生成 dist/bundle.js
 npm run bundle:pack           # 打包成 dist/game-<version>.zip（不含拷贝）
-npm run bundle:pack:copy      # 拷贝到 FLY_OUTPUT_DIR（若无则默认产物目录）
+npm run bundle:pack:copy      # 发布到 demo：同上打包并覆盖 app/assets/js/game.zip + 更新 bundles.json
 ```
 
 - 打包/拷贝需 demo 签名密钥（`fuickjs_demo/js/tools/bundle/bundle_signing_key.pem`，

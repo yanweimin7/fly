@@ -33,6 +33,8 @@ import {
   GROWTH,
   GROWTH_CAP,
   ORBIT_SPEED,
+  getScreenW,
+  getScreenH,
 } from "./config";
 
 const rand = (min: number, max: number): number =>
@@ -44,13 +46,16 @@ function dist(ax: number, ay: number, bx: number, by: number): number {
 
 /** 创建新游戏状态：零陨石开局（玩家独自，场上无自由天体；
  * 首颗陨石在 SPAWN_INTERVAL 后经盲区生成，须主动寻找）。 */
-export function createGame(): GameState {
+export function createGame(
+  screenW: number = 360,
+  screenH: number = 640,
+): GameState {
   const state: GameState = {
     status: "playing",
     player: {
       id: 0,
-      x: 0,
-      y: 0,
+      x: screenW / 2,
+      y: screenH / 2,
       vx: 0,
       vy: 0,
       radius: STAGES[0].r,
@@ -316,8 +321,19 @@ export function step(
   if (mag > 1 && input.intensity > 0) {
     const vx = (input.dx / mag) * speed * input.intensity;
     const vy = (input.dy / mag) * speed * input.intensity;
-    state.player.x += vx * dt;
-    state.player.y += vy * dt;
+    const nx = state.player.x + vx * dt;
+    const ny = state.player.y + vy * dt;
+    // 边界限制：星球整体不滑出屏幕，贴近边缘即被边缘「挡住」。
+    // 玩家中心限制在 [r, W-r]（半径极大时取对称中点，避免下界超过上界）。
+    const r = state.player.radius;
+    const W = getScreenW();
+    const H = getScreenH();
+    const loX = Math.min(r, W - r);
+    const hiX = Math.max(r, W - r);
+    const loY = Math.min(r, H - r);
+    const hiY = Math.max(r, H - r);
+    state.player.x = nx < loX ? loX : nx > hiX ? hiX : nx;
+    state.player.y = ny < loY ? loY : ny > hiY ? hiY : ny;
   }
 
   // 自由天体漂移。

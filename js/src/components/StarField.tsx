@@ -1,40 +1,24 @@
 import React from "react";
-import {
-  Stack,
-  Positioned,
-  useMediaQuery,
-  resolveBundleAssetPath,
-} from "fuickjs";
-import { VideoPlayer } from "@fuickjs-community/video_player";
+import { Stack, Image, useMediaQuery, resolveBundleAssetPath } from "fuickjs";
 
 interface StarFieldProps {
+  /** 保留接口兼容性，背景图不再使用视差。 */
   playerX?: number;
+  /** 保留接口兼容性，背景图不再使用视差。 */
   playerY?: number;
 }
 
-/** 全屏背景：用星空视频铺满整个屏幕，循环播放，跟随摄像机偏移。 */
-export default function StarField({ playerX = 0, playerY = 0 }: StarFieldProps) {
+/** 全屏背景：静态星空图片铺满屏幕。 */
+export default function StarField({}: StarFieldProps) {
   const mq = useMediaQuery();
   const W = mq.screenWidth > 0 ? mq.screenWidth : 360;
   const H = mq.screenHeight > 0 ? mq.screenHeight : 640;
 
-  const videoPath = resolveBundleAssetPath("videos/space_bg.mp4") as string;
-
-  // 背景偏移：让星空跟随玩家移动
-  const offsetX = -(playerX % W);
-  const offsetY = -(playerY % H);
+  const imagePath = resolveBundleAssetPath("images/space_bg.png") as string;
 
   return (
-    <Stack width={W} height={H}>
-      <Positioned left={offsetX} top={offsetY} width={W * 3} height={H * 3}>
-        <VideoPlayer
-          asset={videoPath}
-          autoPlay={true}
-          looping={true}
-          muted={true}
-          fill={true}
-        />
-      </Positioned>
+    <Stack fit="expand">
+      <Image src={imagePath} width={W} height={H} fit="cover" />
     </Stack>
   );
 }
