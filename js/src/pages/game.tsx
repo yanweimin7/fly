@@ -91,7 +91,12 @@ export default function GamePage() {
   return (
     <Scaffold backgroundColor="#000000">
       <Stack fit="expand">
-        <StarField playerX={state.player.x} playerY={state.player.y} />
+        <StarField
+          playerX={state.player.x}
+          playerY={state.player.y}
+          width={W}
+          height={H}
+        />
         <Stack fit="expand">
           <GameField state={state} screenW={W} screenH={H} />
           <TransformEffect state={state} screenW={W} screenH={H} />

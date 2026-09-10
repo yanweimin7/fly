@@ -4,18 +4,17 @@ import {
   Image,
   Positioned,
   Container,
-  useMediaQuery,
   resolveBundleAssetPath,
 } from "fuickjs";
 
 interface StarFieldProps {
-  /** 保留接口兼容性，背景图不再使用视差。 */
-  playerX?: number;
-  /** 保留接口兼容性，背景图不再使用视差。 */
-  playerY?: number;
+  /** 屏幕宽度（由宿主页解析真实尺寸后传入）。 */
+  width: number;
+  /** 屏幕高度（由宿主页解析真实尺寸后传入）。 */
+  height: number;
 }
 
-const NUM_STARS = 60;
+const NUM_STARS = 80;
 
 /** 用固定 seed 的简单伪随机生成可复现的星星参数。 */
 function seededRandom(seed: number): number {
@@ -46,38 +45,33 @@ function generateStars(w: number, h: number): Star[] {
 }
 
 /** 全屏背景：静态星空图片铺满屏幕 + 随机闪烁星星。 */
-export default function StarField({}: StarFieldProps) {
-  const mq = useMediaQuery();
-  const W = mq.screenWidth > 0 ? mq.screenWidth : 360;
-  const H = mq.screenHeight > 0 ? mq.screenHeight : 640;
-
+export default function StarField({ width, height }: StarFieldProps) {
   const imagePath = resolveBundleAssetPath("images/space_bg.png") as string;
 
   const starsRef = useRef<Star[]>([]);
   if (
     starsRef.current.length === 0 ||
-    (starsRef.current as unknown as { _w: number })._w !== W ||
-    (starsRef.current as unknown as { _h: number })._h !== H
+    (starsRef.current as unknown as { _w: number })._w !== width ||
+    (starsRef.current as unknown as { _h: number })._h !== height
   ) {
-    const stars = generateStars(W, H);
-    (stars as unknown as { _w: number })._w = W;
-    (stars as unknown as { _h: number })._h = H;
+    const stars = generateStars(width, height);
+    (stars as unknown as { _w: number })._w = width;
+    (stars as unknown as { _h: number })._h = height;
     starsRef.current = stars;
   }
 
   const [, setTick] = useState(0);
-  const startTime = useRef(Date.now());
 
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 80);
     return () => clearInterval(id);
   }, []);
 
-  const elapsed = (Date.now() - startTime.current) / 1000;
+  const elapsed = Date.now() / 1000;
 
   return (
     <Stack fit="expand">
-      <Image src={imagePath} width={W} height={H} fit="cover" />
+      <Image src={imagePath} width={width} height={height} fit="cover" />
       {starsRef.current.map((star, i) => {
         const opacity =
           0.3 + 0.7 * ((Math.sin(elapsed * star.speed + star.phase) + 1) / 2);
