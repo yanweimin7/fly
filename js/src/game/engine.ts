@@ -26,6 +26,10 @@ import {
   DAMAGE,
   MAX_HEALTH,
   HIT_FLASH_FRAMES,
+  EXPLOSION_METEORS,
+  DEBRIS_SPEED_MIN,
+  DEBRIS_SPEED_MAX,
+  EFFECT_LIFE,
   BIG_PER_MINUTE,
   BIG_WINDOW,
   MATTER_FLOOR,
@@ -42,6 +46,55 @@ const rand = (min: number, max: number): number =>
 
 function dist(ax: number, ay: number, bx: number, by: number): number {
   return Math.hypot(ax - bx, ay - by);
+}
+
+/** 在 (x, y) 添加一个扩散圆环特效（多特效时丢弃最旧的，防堆积）。 */
+function addExplosion(
+  state: GameState,
+  x: number,
+  y: number,
+  radius: number,
+  color: string,
+): void {
+  state.effects.push({
+    id: state.nextEntityId++,
+    x,
+    y,
+    age: 0,
+    life: EFFECT_LIFE,
+    maxR: Math.max(30, radius * 1.9),
+    color,
+  });
+  if (state.effects.length > 24) {
+    state.effects.splice(0, state.effects.length - 24);
+  }
+}
+
+/** 撞击毁伤的天体：爆炸特效 + 崩解成 10 颗陨石沿径向飞溅。
+ * 玩家「自己撞大的」同样调用此函数，效果一致。 */
+function shatter(
+  state: GameState,
+  x: number,
+  y: number,
+  radius: number,
+  color: string,
+): void {
+  addExplosion(state, x, y, radius, color);
+  for (let i = 0; i < EXPLOSION_METEORS; i++) {
+    const a = (i / EXPLOSION_METEORS) * Math.PI * 2 + Math.random() * 0.6;
+    const spd = rand(DEBRIS_SPEED_MIN, DEBRIS_SPEED_MAX);
+    state.entities.push({
+      id: state.nextEntityId++,
+      x: x + Math.cos(a) * radius * 0.5,
+      y: y + Math.sin(a) * radius * 0.5,
+      vx: Math.cos(a) * spd,
+      vy: Math.sin(a) * spd,
+      radius: STAGES[0].r * rand(0.5, 0.8),
+      power: 0,
+      matterValue: Math.max(MATTER_FLOOR, Math.round(radius * 0.3)),
+      isSatellite: false,
+    });
+  }
 }
 
 /** 创建新游戏状态：零陨石开局（玩家独自，场上无自由天体；
@@ -75,6 +128,7 @@ export function createGame(
     nextEntityId: 1,
     hitFlash: 0,
     blockFlash: 0,
+    effects: [],
     transform: false,
     transformT: 0,
   };
@@ -213,34 +267,57 @@ function absorb(state: GameState, e: Entity): void {
   );
   const heal = Math.min(state.maxHealth - state.health, 1);
   state.health = Math.min(state.maxHealth, state.health + heal);
+  addExplosion(
+    state,
+    e.x,
+    e.y,
+    e.radius * 0.9,
+    STAGES[e.power].color ?? "#9e9e9e",
+  );
   e.removed = true;
 }
 
 /** 玩家与某天体的碰撞结算。
- * 规则：更低等级 → 吞噬；同类中真实半径明显更小者亦视为食物；
- * 同类中相当/更大者 → 撞击掉血且敌方死（卫星可抵挡）；更高等级 → 直接死亡。 */
+ * 规则：
+ *  - 更高等级 → 玩家变成陨石被吸走（死亡动画）
+ *  - 更低等级 → 敌方爆炸成10颗陨石，玩家吸收物质
+ *  - 同类中真实半径明显更小者亦视为食物；
+ *  - 同类中相当/更大者 → 撞击掉血且敌方死（卫星可抵挡） */
 function resolveCollision(state: GameState, e: Entity): void {
   const p = state.player;
   const pr = state.stageIndex;
   const rr = p.radius + e.radius;
   if (dist(p.x, p.y, e.x, e.y) >= rr) return;
 
-  // 更低等级：吞噬（吸收物质回血）。
+  // 更低等级：敌方爆炸成10颗陨石，玩家吸收物质。
   if (e.power < pr) {
+    shatter(state, e.x, e.y, e.radius, STAGES[e.power].color ?? "#9e9e9e");
     absorb(state, e);
     return;
   }
 
-  // 更高等级（明显更大的天体）：直接死亡，敌方毫发无损。
+  // 更高等级（明显更大的天体）：玩家变成陨石被吸走。
   if (e.power > pr) {
+    // 玩家崩解成陨石（死亡效果）
+    shatter(state, p.x, p.y, p.radius, STAGES[pr].color ?? "#9e9e9e");
+    // 敌方也显示吸收效果
+    addExplosion(
+      state,
+      e.x,
+      e.y,
+      e.radius * 1.2,
+      STAGES[e.power].color ?? "#9e9e9e",
+    );
+    e.removed = true;
     state.health = 0;
     state.hitFlash = HIT_FLASH_FRAMES;
     state.status = "gameover";
     return;
   }
 
-  // 同类：真实半径比玩家小 → 吞噬；与玩家相当/更大 → 撞击掉血且敌方死。
+  // 同类：真实半径比玩家小 → 吞噬；与玩家相当/更大 → 撞击掉血且敌方崩解。
   if (e.radius < p.radius * 0.95) {
+    shatter(state, e.x, e.y, e.radius, STAGES[e.power].color ?? "#9e9e9e");
     absorb(state, e);
     return;
   }
@@ -252,10 +329,13 @@ function resolveCollision(state: GameState, e: Entity): void {
     state.health -= DAMAGE;
     state.hitFlash = HIT_FLASH_FRAMES;
   }
+  shatter(state, e.x, e.y, e.radius, STAGES[e.power].color ?? "#9e9e9e");
   e.removed = true;
   if (state.health <= 0) {
     state.health = 0;
     state.status = "gameover";
+    // 玩家被撞毁，自己同样崩解成陨石（效果一致）。
+    shatter(state, p.x, p.y, p.radius, STAGES[pr].color ?? "#9e9e9e");
   }
 }
 
@@ -299,8 +379,6 @@ export function step(
   input: InputState,
   dt: number = DT,
 ): void {
-  if (state.status !== "playing") return;
-
   // 宇宙结局转场：冻结玩法，仅推进时间线；结束时置 win（见文末）。
   if (state.transform) {
     state.time += dt;
@@ -314,6 +392,25 @@ export function step(
   state.time += dt;
   if (state.hitFlash > 0) state.hitFlash--;
   if (state.blockFlash > 0) state.blockFlash--;
+
+  // 爆炸特效老化（任何状态都推进，保证死亡后扩散动画放完）。
+  for (const fx of state.effects) fx.age += dt;
+  state.effects = state.effects.filter((fx) => fx.age < fx.life);
+
+  // 非进行中（死亡/胜利定格后）：仅让崩解碎屑继续飞散，不结算玩法。
+  if (state.status !== "playing") {
+    for (const e of state.entities) {
+      e.x += e.vx * dt;
+      e.y += e.vy * dt;
+    }
+    for (const s of state.satellites) {
+      s.angle = (s.angle ?? 0) + ORBIT_SPEED * dt;
+    }
+    state.entities = state.entities.filter(
+      (e) => dist(state.player.x, state.player.y, e.x, e.y) <= despawnDist(),
+    );
+    return;
+  }
 
   // 玩家移动：摇杆方向（归一化）× 强度 → 速度（屏幕恒定速度）。
   const speed = PLAYER_SPEED;

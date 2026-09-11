@@ -35,6 +35,21 @@ export interface Entity {
 
 export type GameStatus = "playing" | "gameover" | "win";
 
+/** 爆炸特效：随时间扩散、淡出的圆环（GameField 渲染）。 */
+export interface Effect {
+  id: number;
+  x: number;
+  y: number;
+  /** 已进行时长（秒）。 */
+  age: number;
+  /** 总寿命（秒）。 */
+  life: number;
+  /** 最大扩散半径（像素）。 */
+  maxR: number;
+  /** 主色（RRGGBB）。 */
+  color: string;
+}
+
 export interface GameState {
   status: GameStatus;
   player: Entity;
@@ -56,6 +71,8 @@ export interface GameState {
   hitFlash: number;
   /** 卫星抵挡闪烁剩余帧。 */
   blockFlash: number;
+  /** 撞击爆炸特效（圆环扩散动画）。 */
+  effects: Effect[];
   /** 是否处于「宇宙结局转场」动画（团聚成蓝点 → 爆炸 → 化为宇宙）。 */
   transform: boolean;
   /** 转场已进行时长（秒），驱动各个阶段。 */

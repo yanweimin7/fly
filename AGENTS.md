@@ -31,6 +31,11 @@ JSON DSL、并在 QuickJS 隔离环境中分发给 Flutter 的 Playground。它�
   并拷贝到 `fuickjs_demo/app/assets/js/game.zip`，同时更新 `bundles.json`
   中 `game` 条目的 sha256（保留其余包）。
 
+**交付约定（重要）：游戏改动完成后必须执行 `npm run bundle:pack:copy`
+发布到 demo**，不能只停在 `npm run dev` / WebSocket 热重载阶段（那只是本地验证）。
+除非用户明确说暂不发布，否则每次改动结束都要跑。发布后 JS 在 demo 生效的
+唯一途径仍是重新 `flutter run`。
+
 **空白页坑：fly 的 `initApp` 必须调 `Runtime.bindGlobals()`**（外加
 `Runtime.configure`）。缺了它 `globalThis.fuickjs.render/...` 不挂载，
 Flutter 无法发起首次页面渲染 → 加载 bundle 成功（打

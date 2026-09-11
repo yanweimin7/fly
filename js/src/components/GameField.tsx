@@ -1,75 +1,18 @@
 import React from "react";
-import { Stack, Positioned, Image } from "fuickjs";
+import { Stack, Positioned, Container } from "fuickjs";
 import type { Entity, GameState } from "../store/game";
+import Planet from "./Planet";
 
 const MARGIN = 80;
 
-/** 所有等级的3D星球图片素材（zip 内 assets/images/，框架自动解析为
- * file://<root>/assets/...）。行星贴图已离线抠成透明圆形，无需裁剪即可圆形显示。
- * 每个等级分配多张，按实体 id 稳定选择，确保同一实体始终同一张（不闪烁）。 */
-const PLANET_IMGS: Record<number, string[]> = {
-  1: [
-    // 陨石
-    "images/planet01.png",
-    "images/planet02.png",
-  ],
-  2: [
-    // 小行星
-    "images/planet03.png",
-    "images/planet04.png",
-  ],
-  3: [
-    // 矮星
-    "images/planet05.png",
-    "images/planet06.png",
-  ],
-  4: [
-    // 岩石行星
-    "images/planet07.png",
-    "images/planet08.png",
-  ],
-  5: [
-    // 气态行星
-    "images/planet09.png",
-    "images/planet10.png",
-  ],
-  6: [
-    // 矮恒星
-    "images/planet11.png",
-    "images/planet12.png",
-  ],
-  7: [
-    // 恒星
-    "images/planet13.png",
-    "images/planet01.png",
-  ],
-  8: [
-    // 超巨星
-    "images/planet02.png",
-    "images/planet03.png",
-  ],
-  9: [
-    // 中子星
-    "images/planet04.png",
-    "images/planet05.png",
-  ],
-  10: [
-    // 黑洞
-    "images/planet06.png",
-    "images/planet07.png",
-  ],
-  11: [
-    // 宇宙
-    "images/planet08.png",
-    "images/planet09.png",
-  ],
-};
-
-/** 按实体 id 稳定取一张行星图：同一实体始终同一张（不闪烁），多实体自然随机分布。 */
-const planetImg = (power: number, id: number): string => {
-  const pool = PLANET_IMGS[power] ?? PLANET_IMGS[1];
-  return pool[((id % pool.length) + pool.length) % pool.length];
-};
+/** 6 位 hex 追加 alpha(0..1) 转 8 位。 */
+function alphaColor(hex: string, opacity: number): string {
+  const s = hex.replace("#", "");
+  const a = Math.round(Math.max(0, Math.min(1, opacity)) * 255)
+    .toString(16)
+    .padStart(2, "0");
+  return `#${s.slice(0, 6)}${a}`;
+}
 
 interface GameFieldProps {
   state: GameState;
@@ -85,11 +28,10 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
     const r = body.radius;
     const d = r * 2;
 
-    // 所有等级都使用3D星球图片
-    const imgSrc = planetImg(body.power, body.id);
+    // 实体全部程序化生成（渐变 / 裁剪绘制），不再使用图片素材
     return (
       <Positioned left={sx - r} top={sy - r} width={d} height={d}>
-        <Image src={imgSrc} width={d} height={d} fit="cover" />
+        <Planet radius={r} power={body.power} id={body.id} time={state.time} />
       </Positioned>
     );
   };
@@ -120,12 +62,69 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
     );
   }
 
+  // 撞击爆炸特效：随时间扩散、淡出的圆环。
+  const fxNodes: React.ReactNode[] = [];
+  for (const fx of state.effects) {
+    const x = Math.min(1, fx.age / fx.life);
+    const r = fx.maxR * (0.2 + 0.8 * (1 - Math.pow(1 - x, 3)));
+    const a = 1 - x * x;
+    const bw = Math.max(1, r * 0.12);
+    fxNodes.push(
+      <Positioned
+        key={`fx${fx.id}`}
+        left={fx.x - r}
+        top={fx.y - r}
+        width={r * 2}
+        height={r * 2}
+      >
+        <Container
+          width={r * 2}
+          height={r * 2}
+          decoration={{
+            color: alphaColor(fx.color, a * 0.18),
+            borderRadius: r,
+            border: {
+              width: bw,
+              color: alphaColor(fx.color, a * 0.85),
+            },
+            boxShadow: {
+              color: alphaColor(fx.color, a * 0.5),
+              blurRadius: r * 0.5,
+            },
+          }}
+        />
+      </Positioned>,
+    );
+    if (x < 0.4) {
+      const cr = r * (1 - x * 2.2);
+      fxNodes.push(
+        <Positioned
+          key={`fxc${fx.id}`}
+          left={fx.x - cr}
+          top={fx.y - cr}
+          width={cr * 2}
+          height={cr * 2}
+        >
+          <Container
+            width={cr * 2}
+            height={cr * 2}
+            decoration={{
+              color: alphaColor("#ffffff", 0.9 * (1 - x * 2.4)),
+              borderRadius: cr,
+            }}
+          />
+        </Positioned>,
+      );
+    }
+  }
+
   return (
     <Stack width={screenW} height={screenH}>
       {/* 背景（黑色宇宙 + 亮星）由页面层的 StarField 铺满全屏，这里只绘游戏实体 */}
       {bodies}
       {sats}
       <React.Fragment key="player">{renderBody(p.x, p.y, p)}</React.Fragment>
+      {fxNodes}
     </Stack>
   );
 }

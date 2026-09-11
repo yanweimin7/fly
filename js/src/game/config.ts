@@ -69,6 +69,14 @@ export const MAX_HEALTH = 100;
 /** 受击闪烁持续帧数。 */
 export const HIT_FLASH_FRAMES = 12;
 
+/** 撞击爆炸：被撞毁的天体崩解出的陨石数量。 */
+export const EXPLOSION_METEORS = 10;
+/** 撞击爆炸：崩解陨石的径向飞溅速度范围（px/s）。 */
+export const DEBRIS_SPEED_MIN = 70;
+export const DEBRIS_SPEED_MAX = 210;
+/** 撞击爆炸：扩散圆环特效的寿命（秒）。 */
+export const EFFECT_LIFE = 0.6;
+
 /** 「明显大于玩家」天体每分钟最多生成个数（避免被围死无法逃脱）。 */
 export const BIG_PER_MINUTE = 2;
 export const BIG_WINDOW = 60;

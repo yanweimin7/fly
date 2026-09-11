@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Column, Container, Text, SizedBox, GestureDetector } from "fuickjs";
 
 interface OverlayProps {
@@ -10,7 +10,7 @@ interface OverlayProps {
   screenH: number;
 }
 
-/** 游戏结束 / 「另一个宇宙」结局界面。 */
+/** 游戏结束 / 「另一个宇宙」结局界面。背景黑幕淡入，让撞击爆炸先露出来。 */
 export default function Overlay({
   win,
   stageName,
@@ -19,13 +19,22 @@ export default function Overlay({
   screenW,
   screenH,
 }: OverlayProps) {
+  const [alpha, setAlpha] = useState(0);
+
+  useEffect(() => {
+    let a = 0;
+    const id = setInterval(() => {
+      a = Math.min(1, a + 0.06);
+      setAlpha(a);
+      if (a >= 1) clearInterval(id);
+    }, 50);
+    return () => clearInterval(id);
+  }, []);
+
+  const bg = `rgba(0,0,0,${(0.72 * alpha).toFixed(3)})`;
+
   return (
-    <Container
-      width={screenW}
-      height={screenH}
-      color="rgba(0,0,0,0.72)"
-      alignment="center"
-    >
+    <Container width={screenW} height={screenH} color={bg} alignment="center">
       <Column crossAxisAlignment="center" mainAxisAlignment="center">
         <Text
           text={win ? "另一个宇宙" : "游戏结束"}
