@@ -36,6 +36,11 @@ JSON DSL、并在 QuickJS 隔离环境中分发给 Flutter 的 Playground。它�
 除非用户明确说暂不发布，否则每次改动结束都要跑。发布后 JS 在 demo 生效的
 唯一途径仍是重新 `flutter run`。
 
+**framework 改动同样要 commit & push**：`fuickjs_framework/`（monorepo，含
+fuickjs / fuickjs_dart / fuickjs_flutter）若在本次迭代中有源码改动，也必须
+提交并推送（`git -C <repo> add -A && git commit && git push`）。跳过杂项：
+已跟踪的 `.DS_Store` 与未跟踪的 `node_modules.zip` 这类产物不要提交。
+
 **空白页坑：fly 的 `initApp` 必须调 `Runtime.bindGlobals()`**（外加
 `Runtime.configure`）。缺了它 `globalThis.fuickjs.render/...` 不挂载，
 Flutter 无法发起首次页面渲染 → 加载 bundle 成功（打
