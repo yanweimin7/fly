@@ -31,6 +31,8 @@ export interface Entity {
   orbitRadius?: number;
   /** 引擎内部标记：本帧已被吞噬 / 撞击消耗，待移除。 */
   removed?: boolean;
+  /** 崩解产生的碎屑：碰撞时只被吸收、不再二次崩解（防止链式递归）。 */
+  isDebris?: boolean;
 }
 
 export type GameStatus = "playing" | "gameover" | "win";

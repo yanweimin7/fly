@@ -93,6 +93,7 @@ function shatter(
       power: 0,
       matterValue: Math.max(MATTER_FLOOR, Math.round(radius * 0.3)),
       isSatellite: false,
+      isDebris: true,
     });
   }
 }
@@ -289,6 +290,12 @@ function resolveCollision(state: GameState, e: Entity): void {
   const rr = p.radius + e.radius;
   if (dist(p.x, p.y, e.x, e.y) >= rr) return;
 
+  // 崩解碎屑：直接吸收为物质，不再二次崩解，防止链式递归爆内存。
+  if (e.isDebris) {
+    absorb(state, e);
+    return;
+  }
+
   // 更低等级：敌方爆炸成10颗陨石，玩家吸收物质。
   if (e.power < pr) {
     shatter(state, e.x, e.y, e.radius, STAGES[e.power].color ?? "#9e9e9e");
@@ -444,8 +451,9 @@ export function step(
     s.angle = (s.angle ?? 0) + ORBIT_SPEED * dt;
   }
 
-  // 碰撞结算。
-  for (const e of state.entities) {
+  // 碰撞结算（迭代快照：崩解产生的碎屑在下帧才参与，避免边遍历边扩数组）。
+  const snapshot = state.entities.slice();
+  for (const e of snapshot) {
     if (e.removed) continue;
     resolveCollision(state, e);
   }
