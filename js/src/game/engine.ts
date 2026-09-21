@@ -37,8 +37,9 @@ import {
   GROWTH,
   GROWTH_CAP,
   ORBIT_SPEED,
-  getScreenW,
-  getScreenH,
+  WORLD_RADIUS,
+  BLACK_HOLE_STAGE,
+  SUCK_EFFECT_LIFE,
 } from "./config";
 
 const rand = (min: number, max: number): number =>
@@ -70,23 +71,70 @@ function addExplosion(
   }
 }
 
-/** 撞击毁伤的天体：爆炸特效 + 崩解成 10 颗陨石沿径向飞溅。
- * 玩家「自己撞大的」同样调用此函数，效果一致。 */
-function shatter(
+/** 黑洞吸入特效：以玩家（洞心）为中心，颗粒从被吞天体处螺旋收束吸入洞内并变小。
+ * 半径取「被吞天体到洞心的距离 + 其半径」，让颗粒从被吞处一路飞入。 */
+function addSuck(
   state: GameState,
   x: number,
   y: number,
   radius: number,
   color: string,
 ): void {
+  // 性能护栏：黑洞连续吞噬时，同时存在的吸入特效最多 6 个，避免渲染粒堆积。
+  let suckCount = 0;
+  for (const fx of state.effects) {
+    if (fx.type === "suck") suckCount++;
+  }
+  if (suckCount >= 6) return;
+  const p = state.player;
+  const reach = Math.max(48, Math.hypot(x - p.x, y - p.y) + radius);
+  state.effects.push({
+    id: state.nextEntityId++,
+    x: p.x,
+    y: p.y,
+    age: 0,
+    life: SUCK_EFFECT_LIFE,
+    maxR: reach,
+    color,
+    type: "suck",
+  });
+  if (state.effects.length > 24) {
+    state.effects.splice(0, state.effects.length - 24);
+  }
+}
+
+/** 撞击毁伤的天体：爆炸特效 + 崩解成 10 颗陨石飞溅。
+ * 传入 towardX/towardY（玩家位置）时，碎屑朝该方向成扇形飞溅并被玩家吸入
+ * （体现「吞噬掉陨石」）；不传则保持径向均匀飞散（如玩家自身死亡崩解）。 */
+function shatter(
+  state: GameState,
+  x: number,
+  y: number,
+  radius: number,
+  color: string,
+  towardX?: number,
+  towardY?: number,
+): void {
   addExplosion(state, x, y, radius, color);
+  const toward = towardX !== undefined && towardY !== undefined;
+  const baseAng = toward ? Math.atan2(towardY - y, towardX - x) : 0;
+  // 朝向玩家：出生在崩解心连玩家方向的「对侧」，使碎屑有可观的飞行路径被吸入。
+  const backX = toward ? -Math.cos(baseAng) * radius * 0.6 : 0;
+  const backY = toward ? -Math.sin(baseAng) * radius * 0.6 : 0;
   for (let i = 0; i < EXPLOSION_METEORS; i++) {
-    const a = (i / EXPLOSION_METEORS) * Math.PI * 2 + Math.random() * 0.6;
-    const spd = rand(DEBRIS_SPEED_MIN, DEBRIS_SPEED_MAX);
+    let a: number;
+    let spd: number;
+    if (toward) {
+      a = baseAng + (Math.random() * 2 - 1) * 0.95;
+      spd = rand(DEBRIS_SPEED_MIN, DEBRIS_SPEED_MAX) * rand(1.1, 1.5);
+    } else {
+      a = (i / EXPLOSION_METEORS) * Math.PI * 2 + Math.random() * 0.6;
+      spd = rand(DEBRIS_SPEED_MIN, DEBRIS_SPEED_MAX);
+    }
     state.entities.push({
       id: state.nextEntityId++,
-      x: x + Math.cos(a) * radius * 0.5,
-      y: y + Math.sin(a) * radius * 0.5,
+      x: x + backX + Math.cos(a) * radius * 0.3,
+      y: y + backY + Math.sin(a) * radius * 0.3,
       vx: Math.cos(a) * spd,
       vy: Math.sin(a) * spd,
       radius: STAGES[0].r * rand(0.5, 0.8),
@@ -220,6 +268,15 @@ export function spawnEntity(
     matterValue,
     isSatellite: false,
   });
+  // 圆形宇宙：生成点不得越过世界圆环边界（贴近边缘时环带被截断）。
+  const last = state.entities[state.entities.length - 1];
+  const dd = Math.hypot(last.x, last.y);
+  const maxD = Math.max(1, WORLD_RADIUS - last.radius);
+  if (dd > maxD) {
+    const s = maxD / dd;
+    last.x *= s;
+    last.y *= s;
+  }
 }
 
 /** 保证玩家周围始终存在「下一等级」天体（进化链的直接目标）。不计入大天体限速。
@@ -251,10 +308,19 @@ export function forceSpawnNext(state: GameState): void {
     matterValue,
     isSatellite: false,
   });
+  // 圆形宇宙：生成点不得越过世界圆环边界。
+  const last = state.entities[state.entities.length - 1];
+  const dd = Math.hypot(last.x, last.y);
+  const maxD = Math.max(1, WORLD_RADIUS - last.radius);
+  if (dd > maxD) {
+    const s = maxD / dd;
+    last.x *= s;
+    last.y *= s;
+  }
 }
 
 /** 吞噬：更低等级天体被移除，累加物质并回血，玩家尺寸微增。 */
-function absorb(state: GameState, e: Entity): void {
+function absorb(state: GameState, e: Entity, ring: boolean = true): void {
   let gain = e.matterValue;
   // 中子星(L9) / 黑洞(L10) / 宇宙(L11) 吸收恒星及以下获得额外能量。
   if (state.stageIndex >= 8 && e.power <= 6) {
@@ -268,14 +334,30 @@ function absorb(state: GameState, e: Entity): void {
   );
   const heal = Math.min(state.maxHealth - state.health, 1);
   state.health = Math.min(state.maxHealth, state.health + heal);
-  addExplosion(
-    state,
-    e.x,
-    e.y,
-    e.radius * 0.9,
-    STAGES[e.power].color ?? "#9e9e9e",
-  );
+  // 黑洞吸入模式下不追加爆炸圆环（由吸积颗粒替代）。
+  if (ring) {
+    addExplosion(
+      state,
+      e.x,
+      e.y,
+      e.radius * 0.9,
+      STAGES[e.power].color ?? "#9e9e9e",
+    );
+  }
   e.removed = true;
+}
+
+/** 吞噬结算：更低等级 / 更小的天体被吞入。
+ * 黑洞及以后改为「吸入洞内」特效（无爆炸、无崩解碎屑）；普通阶段保持爆炸 + 碎屑。 */
+function swallow(state: GameState, e: Entity): void {
+  const color = STAGES[e.power].color ?? "#9e9e9e";
+  const blackHole = state.stageIndex >= BLACK_HOLE_STAGE;
+  if (blackHole) {
+    addSuck(state, e.x, e.y, e.radius, color);
+  } else {
+    shatter(state, e.x, e.y, e.radius, color, state.player.x, state.player.y);
+  }
+  absorb(state, e, !blackHole);
 }
 
 /** 玩家与某天体的碰撞结算。
@@ -291,15 +373,15 @@ function resolveCollision(state: GameState, e: Entity): void {
   if (dist(p.x, p.y, e.x, e.y) >= rr) return;
 
   // 崩解碎屑：直接吸收为物质，不再二次崩解，防止链式递归爆内存。
+  // 黑洞期间碎屑已自带飞向玩家的运动，直接吸入即可，不再追加吸积特效（防堆积卡顿）。
   if (e.isDebris) {
-    absorb(state, e);
+    absorb(state, e, state.stageIndex < BLACK_HOLE_STAGE);
     return;
   }
 
   // 更低等级：敌方爆炸成10颗陨石，玩家吸收物质。
   if (e.power < pr) {
-    shatter(state, e.x, e.y, e.radius, STAGES[e.power].color ?? "#9e9e9e");
-    absorb(state, e);
+    swallow(state, e);
     return;
   }
 
@@ -324,8 +406,7 @@ function resolveCollision(state: GameState, e: Entity): void {
 
   // 同类：真实半径比玩家小 → 吞噬；与玩家相当/更大 → 撞击掉血且敌方崩解。
   if (e.radius < p.radius * 0.95) {
-    shatter(state, e.x, e.y, e.radius, STAGES[e.power].color ?? "#9e9e9e");
-    absorb(state, e);
+    swallow(state, e);
     return;
   }
   const canShield = state.stageIndex >= 3 && state.satellites.length > 0;
@@ -336,7 +417,15 @@ function resolveCollision(state: GameState, e: Entity): void {
     state.health -= DAMAGE;
     state.hitFlash = HIT_FLASH_FRAMES;
   }
-  shatter(state, e.x, e.y, e.radius, STAGES[e.power].color ?? "#9e9e9e");
+  shatter(
+    state,
+    e.x,
+    e.y,
+    e.radius,
+    STAGES[e.power].color ?? "#9e9e9e",
+    p.x,
+    p.y,
+  );
   e.removed = true;
   if (state.health <= 0) {
     state.health = 0;
@@ -425,19 +514,16 @@ export function step(
   if (mag > 1 && input.intensity > 0) {
     const vx = (input.dx / mag) * speed * input.intensity;
     const vy = (input.dy / mag) * speed * input.intensity;
-    const nx = state.player.x + vx * dt;
-    const ny = state.player.y + vy * dt;
-    // 边界限制：星球整体不滑出屏幕，贴近边缘即被边缘「挡住」。
-    // 玩家中心限制在 [r, W-r]（半径极大时取对称中点，避免下界超过上界）。
-    const r = state.player.radius;
-    const W = getScreenW();
-    const H = getScreenH();
-    const loX = Math.min(r, W - r);
-    const hiX = Math.max(r, W - r);
-    const loY = Math.min(r, H - r);
-    const hiY = Math.max(r, H - r);
-    state.player.x = nx < loX ? loX : nx > hiX ? hiX : nx;
-    state.player.y = ny < loY ? loY : ny > hiY ? hiY : ny;
+    state.player.x += vx * dt;
+    state.player.y += vy * dt;
+    // 圆形宇宙边界：玩家被夹在世界圆环内（大半径玩家也不例外），向圆心方向回退。
+    const pd = Math.hypot(state.player.x, state.player.y);
+    const maxPd = WORLD_RADIUS - state.player.radius;
+    if (pd > maxPd) {
+      const s = maxPd / pd;
+      state.player.x *= s;
+      state.player.y *= s;
+    }
   }
 
   // 自由天体漂移。

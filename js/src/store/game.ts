@@ -37,7 +37,10 @@ export interface Entity {
 
 export type GameStatus = "playing" | "gameover" | "win";
 
-/** 爆炸特效：随时间扩散、淡出的圆环（GameField 渲染）。 */
+/** 特效类型：ring=扩散圆环（撞击爆炸）；suck=黑洞吸入（颗粒螺旋收束变小、淡入洞内）。 */
+export type EffectType = "ring" | "suck";
+
+/** 特效（GameField 渲染）。ring 为随时间扩散、淡出的圆环；suck 为吸入颗粒。 */
 export interface Effect {
   id: number;
   x: number;
@@ -50,6 +53,8 @@ export interface Effect {
   maxR: number;
   /** 主色（RRGGBB）。 */
   color: string;
+  /** 特效类型，缺省为 ring。 */
+  type?: EffectType;
 }
 
 export interface GameState {

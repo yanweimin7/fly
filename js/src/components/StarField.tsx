@@ -12,6 +12,9 @@ interface StarFieldProps {
   width: number;
   /** 屏幕高度（由宿主页解析真实尺寸后传入）。 */
   height: number;
+  /** 玩家世界坐标（相机中心）：星空按 0.8 视差比随玩家缓速平移滚动。 */
+  playerX?: number;
+  playerY?: number;
 }
 
 const NUM_STARS = 70;
@@ -197,8 +200,14 @@ function StarShape({ star, opacity }: { star: Star; opacity: number }) {
   );
 }
 
-/** 全屏背景：静态星空图片铺满屏幕 + 近似真实的闪烁星空（每颗星带十字光芒）。 */
-export default function StarField({ width, height }: StarFieldProps) {
+/** 全屏背景：静态星空图片铺满屏幕 + 近似真实的闪烁星空（每颗星带十字光芒）。
+ * 星星按相机位置做 0.8 视差平铺滚动，玩家自由移动时背景仍有深度感。 */
+export default function StarField({
+  width,
+  height,
+  playerX,
+  playerY,
+}: StarFieldProps) {
   const imagePath = resolveBundleAssetPath("images/space_bg.png") as string;
 
   const dimsRef = useRef<string>("");
@@ -218,14 +227,22 @@ export default function StarField({ width, height }: StarFieldProps) {
 
   const t = tick * 0.12; // 近似秒，驱动闪烁频率
 
+  // 相机偏移（屏幕中心对应玩家位置），星空以 0.8 视差比反方向平移、平铺滚动。
+  const ox = playerX !== undefined ? playerX - width / 2 : 0;
+  const oy = playerY !== undefined ? playerY - height / 2 : 0;
+  const rollX = (v: number) => (((v - ox * 0.8) % width) + width) % width;
+  const rollY = (v: number) => (((v - oy * 0.8) % height) + height) % height;
+
   return (
     <Stack fit="expand">
       <Image src={imagePath} width={width} height={height} fit="cover" />
       {starsRef.current.map((star, i) => {
         const opacity = twinkle(t, star);
         const key = `star-${i}`;
-        const left = star.x - star.ray;
-        const top = star.y - star.ray;
+        const sx = rollX(star.x);
+        const sy = rollY(star.y);
+        const left = sx - star.ray;
+        const top = sy - star.ray;
         const box = star.ray * 2;
         return (
           <Positioned key={key} left={left} top={top} width={box} height={box}>

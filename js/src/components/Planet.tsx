@@ -571,154 +571,76 @@ function glowingStar(
 
 function blackhole(d: number, C: number, id: number): React.ReactNode[] {
   const jb = (srand(id * 7) - 0.5) * 0.1;
-  const shadow = d * 0.34;
-  const edge = Math.max(1.2, d * 0.02);
+  const s = d * 0.36; // 事件视界半径：纯黑「洞」本体，占主体
+  const ph = Math.max(1.2, d * 0.016); // 光子环宽度
   return [
+    // 外围极淡的引力透镜余晖（不喧宾夺主）
     radialGlow(
       d,
       [
-        alphaOf("#8a4aff", 0.26),
-        alphaOf("#5b2a8a", 0.1),
-        alphaOf("#5b2a8a", 0),
+        alphaOf(shade("#5b2a8a", jb), 0.16),
+        alphaOf("#2a1650", 0.06),
+        alphaOf("#2a1650", 0),
       ],
-      [0, 0.55, 1],
+      [0, 0.5, 1],
       "halo",
     ),
-    // 吸积盘远环：盘面透镜成像包绕在黑洞四周，中间被视界阴影盖住，
-    // 上弧是「光弯过头顶的冠」，下弧露出底面亮线
-    <Positioned
-      key="disk-b"
-      left={C - d * 0.875}
-      top={C - d * 0.3}
-      width={d * 1.75}
-      height={d * 0.6}
-    >
-      <Container
-        width={d * 1.75}
-        height={d * 0.6}
-        decoration={{
-          borderRadius: d * 0.3,
-          border: {
-            width: edge,
-            color: alphaOf("#fff2cc", 0.9),
-          },
-          gradient: {
-            type: "linear",
-            begin: "centerLeft",
-            end: "centerRight",
-            colors: [
-              alphaOf(shade("#ffc890", jb), 0.1),
-              alphaOf("#fff6dd", 0.95),
-              alphaOf(shade("#ffb060", jb), 0.9),
-              alphaOf("#ff7a33", 0.75),
-              alphaOf("#7a3418", 0),
-            ],
-            stops: [0, 0.28, 0.55, 0.78, 1],
-          },
-          boxShadow: { color: alphaOf("#ffc078", 0.6), blurRadius: d * 0.05 },
-        }}
-      />
-    </Positioned>,
-    // 内环：更炽热的深部盘
-    <Positioned
-      key="disk-i"
-      left={C - d * 0.66}
-      top={C - d * 0.25}
-      width={d * 1.32}
-      height={d * 0.5}
-    >
-      <Container
-        width={d * 1.32}
-        height={d * 0.5}
-        decoration={{
-          borderRadius: d * 0.25,
-          border: {
-            width: edge,
-            color: alphaOf("#fff7e0", 0.95),
-          },
-          gradient: {
-            type: "linear",
-            begin: "centerLeft",
-            end: "centerRight",
-            colors: [
-              alphaOf("#fffbe8", 0.2),
-              alphaOf("#ffffff", 0.95),
-              alphaOf("#ffdfb0", 0.9),
-              alphaOf("#ff9a50", 0),
-            ],
-            stops: [0, 0.4, 0.75, 1],
-          },
-          boxShadow: { color: alphaOf("#ffe9c0", 0.7), blurRadius: d * 0.04 },
-        }}
-      />
-    </Positioned>,
-    // 纯黑事件视界阴影
+    // 吸积盘：环绕视界外缘的亮环（白热→橙→渐隐），盘面清晰可见
+    radialGlow(
+      d,
+      [
+        alphaOf("#ff7a33", 0),
+        alphaOf("#fff2cc", 0),
+        alphaOf("#fff2cc", 0),
+        alphaOf("#fff7e0", 0.95),
+        alphaOf("#ffc890", 0.55),
+        alphaOf("#ff8a3c", 0.18),
+        alphaOf("#ff5a22", 0),
+      ],
+      [0, 0.4, 0.68, 0.78, 0.88, 0.96, 1],
+      "disk",
+    ),
+    // 纯黑事件视界：洞内（含中心）为不透明深黑，压在吸积盘之上
     <Positioned
       key="shadow"
-      left={C - shadow}
-      top={C - shadow}
-      width={shadow * 2}
-      height={shadow * 2}
+      left={C - s}
+      top={C - s}
+      width={s * 2}
+      height={s * 2}
     >
       <Container
-        width={shadow * 2}
-        height={shadow * 2}
+        width={s * 2}
+        height={s * 2}
         decoration={{
           color: alphaOf("#000000", 1),
-          borderRadius: shadow,
+          borderRadius: s,
         }}
       />
     </Positioned>,
-    // 光子球环：紧贴阴影边缘的闪耀细环
+    // 光子球环：仅留一条白热细环标明黑洞边界，保证黑体在夜幕中仍可见
     <Positioned
       key="photon"
-      left={C - shadow}
-      top={C - shadow}
-      width={shadow * 2}
-      height={shadow * 2}
+      left={C - s}
+      top={C - s}
+      width={s * 2}
+      height={s * 2}
     >
       <Container
-        width={shadow * 2}
-        height={shadow * 2}
+        width={s * 2}
+        height={s * 2}
         decoration={{
-          borderRadius: shadow,
+          borderRadius: s,
           border: {
-            width: Math.max(1, d * 0.014),
-            color: alphaOf("#fff7e0", 0.95),
+            width: ph,
+            color: alphaOf("#fff7e0", 0.7),
           },
           boxShadow: {
-            color: alphaOf("#ffd9a0", 0.85),
-            blurRadius: d * 0.045,
-            spreadRadius: Math.max(0.5, d * 0.01),
+            color: alphaOf("#ffd9a0", 0.3),
+            blurRadius: d * 0.02,
+            spreadRadius: 0,
           },
         }}
       />
-    </Positioned>,
-    // 吸积盘近缘：盘面正面斜穿而过的亮带，用多边形裁出带透视的弯曲
-    <Positioned
-      key="disk-f"
-      left={C - d * 0.75}
-      top={C - d * 0.25}
-      width={d * 1.5}
-      height={d * 0.5}
-    >
-      <ClipPath path="polygon(0% 30%, 100% 30%, 100% 60%, 0% 60%)">
-        <Container
-          width={d * 1.5}
-          height={d * 0.5}
-          decoration={{
-            borderRadius: d * 0.25,
-            border: {
-              width: Math.max(1, d * 0.016),
-              color: alphaOf("#fff3da", 0.95),
-            },
-            boxShadow: {
-              color: alphaOf("#ffdfb0", 0.8),
-              blurRadius: d * 0.06,
-            },
-          }}
-        />
-      </ClipPath>
     </Positioned>,
   ];
 }
@@ -829,7 +751,7 @@ export default function Planet({ radius, power, id, time }: PlanetProps) {
       break;
   }
   return (
-    <Stack width={d} height={d}>
+    <Stack width={d} height={d} overflow="visible">
       {nodes}
     </Stack>
   );

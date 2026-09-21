@@ -43,6 +43,10 @@ export const SPAWN_GAP_MAX = 70;
 export const despawnDist = (): number =>
   Math.ceil(Math.sqrt(_screenW * _screenW + _screenH * _screenH) * 0.6);
 
+/** 宇宙圆融边界半径（像素）：世界是一个以出生点（原点）为圆心的圆形宇宙。
+ * 玩家与相机均被夹在该圆环内——靠近边缘时玩家会偏离屏幕中心，且可见到圆环边界。 */
+export const WORLD_RADIUS = 1800;
+
 /** 盲区生成间隔（秒）：零陨石开局后，每隔该间隔在盲区生成 1 颗自由天体。 */
 export const SPAWN_INTERVAL = 1;
 
@@ -214,6 +218,9 @@ export const STAGES: StageDef[] = [
 /** 黑洞达成后，累计物质达到该值进入「另一个宇宙」结局。 */
 export const FINAL_MATTER = 5000;
 
+/** 黑洞吸入特效：颗粒从被吞处螺旋收束吸入洞内的总寿命（秒）。 */
+export const SUCK_EFFECT_LIFE = 0.7;
+
 /** 宇宙结局转场三阶段时长（秒）：
  * 0~COLLAPSE：所有物质团聚成一个蓝点；COLLAPSE~EXPLODE：蓝点爆炸成宇宙；
  * EXPLODE~TOTAL：星海扩散铺满，随后进入结局界面。 */
@@ -223,3 +230,7 @@ export const TRANSFORM_TOTAL = 3.0;
 
 /** 取某等级的 0 基索引（用于数组访问）。 */
 export const stageIndexFromId = (id: number): number => id - 1;
+
+/** 黑洞（L10）所在的 STAGES 索引：达到该等级后吞噬改为「吸入洞内」特效。
+ * 须在 stageIndexFromId 之后定义（其引用该函数）。 */
+export const BLACK_HOLE_STAGE = stageIndexFromId(10);
