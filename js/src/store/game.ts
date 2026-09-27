@@ -33,6 +33,8 @@ export interface Entity {
   removed?: boolean;
   /** 崩解产生的碎屑：碰撞时只被吸收、不再二次崩解（防止链式递归）。 */
   isDebris?: boolean;
+  /** 黑洞吸入中：正坠向黑洞中心并缩小，到达中心后移除（不再参与碰撞）。 */
+  fallingIn?: boolean;
 }
 
 export type GameStatus = "playing" | "gameover" | "win";

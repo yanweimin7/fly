@@ -2,6 +2,7 @@ import React from "react";
 import { Stack, Positioned, Container } from "fuickjs";
 import type { GameState } from "../store/game";
 import {
+  TRANSFORM_SUCK,
   TRANSFORM_COLLAPSE,
   TRANSFORM_EXPLODE,
   TRANSFORM_TOTAL,
@@ -23,11 +24,13 @@ interface Props {
   screenH: number;
 }
 
-/** 宇宙结局转场动画：所有物质团聚成一个蓝点 → 蓝点爆炸 → 扩散化为宇宙。
- * 覆盖在 GameField 之上，按 state.transformT 在三阶段之间推进。 */
+/** 宇宙结局转场动画：0~SUCK 场上物质被吸入黑洞（引擎演算，本体由 GameField 绘制）→
+ * 黑洞坍缩成一个小蓝点 → 蓝点大爆炸 → 星海扩散、一个宇宙形成。
+ * 覆盖在 GameField 之上，按 state.transformT 在各阶段之间推进。 */
 export default function TransformEffect({ state, screenW, screenH }: Props) {
   if (!state.transform) return null;
   const t = state.transformT;
+  const S = TRANSFORM_SUCK;
   const C = TRANSFORM_COLLAPSE;
   const E = TRANSFORM_EXPLODE;
   const TOT = TRANSFORM_TOTAL;
@@ -36,10 +39,11 @@ export default function TransformEffect({ state, screenW, screenH }: Props) {
 
   const nodes: React.ReactNode[] = [];
 
-  // —— 阶段一：团聚成蓝点 ——
-  if (t < C) {
-    const p = t / C; // 0→1，物质向中心汇聚
-    const r = lerp(56, 5, p);
+  // —— 阶段二：物质吸入完成后，黑洞坍缩成一个小蓝点（蓝点随玩家半径收缩而变小、
+  // 亮度渐强，直到 explode 前凝成一颗蓝色奇点）。 ——
+  if (t >= S && t < C) {
+    const q = (t - S) / (C - S); // 0→1
+    const r = Math.max(3, state.player.radius);
     nodes.push(
       <Positioned
         key="collapse"
@@ -54,13 +58,13 @@ export default function TransformEffect({ state, screenW, screenH }: Props) {
           decoration={{
             gradient: {
               type: "radial",
-              colors: [alpha("#ffffff", 0.35 + 0.65 * p), "#4d9bff", "#1b4fd0"],
+              colors: [alpha("#ffffff", 0.25 + 0.7 * q), "#4d9bff", "#1b4fd0"],
               stops: [0, 0.6, 1],
             },
             borderRadius: r,
             boxShadow: {
-              color: alpha("#4d9bff", 0.8),
-              blurRadius: 26 - 12 * p,
+              color: alpha("#4d9bff", 0.45 + 0.5 * q),
+              blurRadius: r * 1.2,
             },
           }}
         />
@@ -68,12 +72,12 @@ export default function TransformEffect({ state, screenW, screenH }: Props) {
     );
   }
 
-  // —— 阶段二：爆炸 ——
+  // —— 阶段三：大爆炸 ——
   if (t >= C && t < E) {
     const q = (t - C) / (E - C); // 0→1
-    const ringR = lerp(6, 220, q);
-    const ringW = lerp(8, 2, q);
-    const flashR = lerp(4, 150, q);
+    const ringR = lerp(6, 240, q);
+    const ringW = lerp(9, 2, q);
+    const flashR = lerp(5, 170, q);
     nodes.push(
       <Positioned key="core" left={cx - 8} top={cy - 8} width={16} height={16}>
         <Container
@@ -83,6 +87,27 @@ export default function TransformEffect({ state, screenW, screenH }: Props) {
             color: alpha("#ffffff", 0.9 + 0.1 * q),
             borderRadius: 8,
             boxShadow: { color: "#7fb2ff", blurRadius: 40 },
+          }}
+        />
+      </Positioned>,
+      <Positioned
+        key="core-blue"
+        left={cx - 4}
+        top={cy - 4}
+        width={8}
+        height={8}
+      >
+        <Container
+          width={8}
+          height={8}
+          decoration={{
+            gradient: {
+              type: "radial",
+              colors: ["#ffffff", "#7db4ff", "rgba(29,79,208,0)"],
+              stops: [0, 0.4, 1],
+            },
+            borderRadius: 4,
+            boxShadow: { color: "#4d9bff", blurRadius: 22 },
           }}
         />
       </Positioned>,
@@ -129,7 +154,7 @@ export default function TransformEffect({ state, screenW, screenH }: Props) {
     );
   }
 
-  // —— 阶段三：扩散化为宇宙 ——
+  // —— 阶段四：爆炸散去，星海扩散铺满，一个宇宙形成 ——
   if (t >= E) {
     const s = Math.min(1, (t - E) / (TOT - E)); // 0→1
     const cov = Math.max(screenW, screenH) * 1.4;

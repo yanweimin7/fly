@@ -218,15 +218,30 @@ export const STAGES: StageDef[] = [
 /** 黑洞达成后，累计物质达到该值进入「另一个宇宙」结局。 */
 export const FINAL_MATTER = 5000;
 
+/** 黑洞引力范围系数：引力半径 = 玩家半径 × 该系数（L10 黑洞 r=105 → 约 273px）。 */
+export const BLACKHOLE_GRAVITY_RATIO = 2.6;
+/** 黑洞引力加速度（px/s²）：范围内可吞噬天体被加速拉向黑洞中心，越近越强。 */
+export const BLACKHOLE_GRAVITY_PULL = 120;
+/** 黑洞吸入坠向中心的移动速度（px/s）。 */
+export const BLACKHOLE_FALL_SPEED = 320;
+/** 黑洞吸入时天体半径的比例收缩速率（1/s）：半径逐帧 ×(1 − 速率×dt)，到中心时趋于不可见。 */
+export const BLACKHOLE_FALL_SHRINK = 2.5;
+
 /** 黑洞吸入特效：颗粒从被吞处螺旋收束吸入洞内的总寿命（秒）。 */
 export const SUCK_EFFECT_LIFE = 0.7;
 
-/** 宇宙结局转场三阶段时长（秒）：
- * 0~COLLAPSE：所有物质团聚成一个蓝点；COLLAPSE~EXPLODE：蓝点爆炸成宇宙；
- * EXPLODE~TOTAL：星海扩散铺满，随后进入结局界面。 */
-export const TRANSFORM_COLLAPSE = 1.2;
-export const TRANSFORM_EXPLODE = 2.4;
-export const TRANSFORM_TOTAL = 3.0;
+/** 宇宙结局转场四阶段时长（秒）：
+ * 0~SUCK：场上所有物质吸入黑洞体内；SUCK~COLLAPSE：黑洞坍缩成一个小蓝点；
+ * COLLAPSE~EXPLODE：蓝点大爆炸；EXPLODE~TOTAL：星海扩散铺满，一个宇宙形成。 */
+export const TRANSFORM_SUCK = 0.9;
+export const TRANSFORM_COLLAPSE = 1.4;
+export const TRANSFORM_EXPLODE = 2.6;
+export const TRANSFORM_TOTAL = 3.2;
+
+/** 结局吸入：物质坠向洞心的速度（px/s），须保证盲区边缘的物质在吸入阶段内到达。 */
+export const TRANSFORM_SUCK_SPEED = 900;
+/** 结局吸入：物质半径的比例收缩速率（1/s）。 */
+export const TRANSFORM_SUCK_SHRINK = 5;
 
 /** 取某等级的 0 基索引（用于数组访问）。 */
 export const stageIndexFromId = (id: number): number => id - 1;
@@ -234,3 +249,80 @@ export const stageIndexFromId = (id: number): number => id - 1;
 /** 黑洞（L10）所在的 STAGES 索引：达到该等级后吞噬改为「吸入洞内」特效。
  * 须在 stageIndexFromId 之后定义（其引用该函数）。 */
 export const BLACK_HOLE_STAGE = stageIndexFromId(10);
+
+/* —— 2.5D 球面光照渲染参数（方案见 docs/planet-2.5d-rendering.md） —— */
+
+/** 冷行星（L0~L4）球面光照渲染的所有可调参数，集中在一处，热重载试玩后收敛。 */
+export const PLANET_GFX = {
+  /** 视角系单位光向量（由表面指向光源，y 向上）。全场景单一光源，取代 LIGHTS[id%4]。 */
+  light: { x: 0.32, y: 0.78, z: 0.54 },
+  /** 轴倾角 τ 范围（弧度，按 id 播种）。 */
+  tilt: { min: 0.15, max: 0.6 },
+  /** 自转速度范围（rad/s，按类型/半径取值）。 */
+  spin: {
+    rock: { min: 0.25, max: 0.85 },
+    dwarf: { min: 0.15, max: 0.5 },
+    gas: { min: 0.08, max: 0.3 },
+  },
+  /** 夜帽：最大 alpha 与柔和度。blur 给晨昏线衔接处做羽化（遮蔽渐变走向与
+   * 曲线晨昏线的夹角在边界残留的 alpha——这是「阴影生硬」的主因之一）。 */
+  nightCap: { alpha: 0.34, blur: 0.05 },
+  /** 镜面高光（glint）：绑定表面光斑随自转移动，翻过晨昏线消失。 */
+  glint: {
+    radius: 0.14, // 光斑半径 = R×该系数
+    blur: 0.07, // 高斯模糊 sigma = R×该系数
+    minLit: 0.12, // lit 低于该值光斑消失
+    maxAlpha: 0.85,
+    phi: 0, // 光斑纬度（≈赤道）
+  },
+  /** 轮廓弧：受光侧白边 / 夜侧黑边。黑边同样带 blur，避免夜侧勒一道生硬黑环。 */
+  rim: {
+    stroke: 0.045, // 描边宽 = R×该系数
+    dayAlpha: 0.4,
+    nightAlpha: 0.26,
+    blur: 0.06, // 小 sigma 模糊 = R×该系数（柔和高光/暗边）
+  },
+  /** 岩石行星表面斑驳（terrain mottling）：大块柔和明暗补丁，随自转流动，
+   * 打破「底+陨石坑」的平面感。用径向渐变自带软边，不开 mask blur。 */
+  mottle: {
+    count: 6, // 每颗岩石行星的候选补丁数（渲染端按半径取子集）
+    shade: 0.14, // 明/暗偏移幅度
+    alphaMin: 0.06, // 补丁峰值 alpha 下限
+    alphaMax: 0.13,
+    sizeMin: 0.45,
+    sizeMax: 1.05,
+  },
+  /** 岩石行星陨石坑：幂律尺寸分布（大量小坑+少量大坑），亮边环 + 暗坑体双层。 */
+  crater: {
+    maxCount: 16, // 候选坑数（渲染端按半径取子集）
+    sizeMin: 0.06, // 角半径下限（×R）
+    sizeMax: 0.3,
+    rimScale: 1.55, // 亮边环相对坑体大小
+    rimOffset: 0.3, // 亮边环朝光偏移（×坑角半径）
+    rimAlpha: 0.6, // 亮边环峰值 alpha
+    floorScale: 0.92, // 坑体大小
+    floorOffset: 0.2, // 坑体朝影偏移（×坑角半径）——亮边环露朝光侧、影池收暗侧
+    minPx: 0.9, // 屏幕投影半径低于该像素的坑跳过（省指令）；低一点让陨石级的小星体也有坑田
+  },
+  /** 气态行星风暴（大红斑一类）：赤道附近的彩色漩涡，随自转移动。 */
+  storm: {
+    size: 0.42, // 角半径（×R）
+    alpha: 0.55,
+    color: "#a05a38",
+  },
+  /** 整体半球暗边（纵深）：径向渐变最外层 alpha。 */
+  limb: { alpha: 0.3 },
+  /** 行星环（气态行星）。 */
+  ring: {
+    tiltMin: 0.35,
+    tiltMax: 0.6,
+    rIn: 1.02, // 环内半径（×R，略大于球体）
+    Rm: 1.2, // 中线半径（×R）
+    /** 环带宽 = R×该系数（= Rout−Rin）。 */
+    width: 0.36,
+    backAlpha: 0.35,
+    frontAlpha: 0.8,
+  },
+  /** LOD：直径（px）低于阈值逐级降档（简单→纯圆、中→少坑无光斑）。 */
+  lod: { simple: 14, full: 20 },
+} as const;

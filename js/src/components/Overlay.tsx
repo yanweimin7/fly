@@ -49,6 +49,16 @@ export default function Overlay({
           color="#cfd8dc"
           fontSize={16}
         />
+        {!win && (
+          <>
+            <SizedBox height={8} />
+            <Text
+              text="继续将从当前等级保留物质重新来过"
+              color="#80cbc4"
+              fontSize={13}
+            />
+          </>
+        )}
         <SizedBox height={24} />
         <GestureDetector onTap={onRestart}>
           <Container

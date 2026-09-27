@@ -10,6 +10,10 @@ import type { Entity, GameState, InputState } from "../store/game";
 import {
   STAGES,
   FINAL_MATTER,
+  TRANSFORM_SUCK,
+  TRANSFORM_SUCK_SPEED,
+  TRANSFORM_SUCK_SHRINK,
+  TRANSFORM_COLLAPSE,
   TRANSFORM_TOTAL,
   DT,
   PLAYER_SPEED,
@@ -38,8 +42,13 @@ import {
   GROWTH_CAP,
   ORBIT_SPEED,
   WORLD_RADIUS,
+  getScreenW,
+  getScreenH,
   BLACK_HOLE_STAGE,
-  SUCK_EFFECT_LIFE,
+  BLACKHOLE_GRAVITY_RATIO,
+  BLACKHOLE_GRAVITY_PULL,
+  BLACKHOLE_FALL_SPEED,
+  BLACKHOLE_FALL_SHRINK,
 } from "./config";
 
 const rand = (min: number, max: number): number =>
@@ -71,36 +80,20 @@ function addExplosion(
   }
 }
 
-/** 黑洞吸入特效：以玩家（洞心）为中心，颗粒从被吞天体处螺旋收束吸入洞内并变小。
- * 半径取「被吞天体到洞心的距离 + 其半径」，让颗粒从被吞处一路飞入。 */
-function addSuck(
-  state: GameState,
-  x: number,
-  y: number,
-  radius: number,
-  color: string,
-): void {
-  // 性能护栏：黑洞连续吞噬时，同时存在的吸入特效最多 6 个，避免渲染粒堆积。
-  let suckCount = 0;
-  for (const fx of state.effects) {
-    if (fx.type === "suck") suckCount++;
-  }
-  if (suckCount >= 6) return;
+/** 判定某自由天体是否为「可被黑洞引力吸入 / 吞噬」的目标（与碰撞同一套吞食规则）。 */
+function edible(state: GameState, e: Entity): boolean {
   const p = state.player;
-  const reach = Math.max(48, Math.hypot(x - p.x, y - p.y) + radius);
-  state.effects.push({
-    id: state.nextEntityId++,
-    x: p.x,
-    y: p.y,
-    age: 0,
-    life: SUCK_EFFECT_LIFE,
-    maxR: reach,
-    color,
-    type: "suck",
-  });
-  if (state.effects.length > 24) {
-    state.effects.splice(0, state.effects.length - 24);
-  }
+  if (e.isDebris) return true;
+  if (e.power < state.stageIndex) return true;
+  return e.power === state.stageIndex && e.radius < p.radius * 0.95;
+}
+
+/** 黑洞吸入开始：物质即时结算，但天体不立即消失——保留身形坠向中心并缩小，到达后移除。
+ * 撞毁碎屑同样走此流程，保证黑洞阶段「东西到中心变小直到不见」的统一视觉。 */
+function startFallIn(state: GameState, e: Entity): void {
+  absorb(state, e, false);
+  e.removed = false;
+  e.fallingIn = true;
 }
 
 /** 撞击毁伤的天体：爆炸特效 + 崩解成 10 颗陨石飞溅。
@@ -186,6 +179,20 @@ export function createGame(
   return state;
 }
 
+/** 死亡续玩：保留已累计的物质与进化等级，清空场上天体/碎屑、回满血、重置时间，
+ * 让玩家从当前等级重新开始苟存，避免「一死清空、永差一口气」的挫败（进化阈值基数大）。
+ * 卫星一并清空（重新捕获）；玩家位置回到原点，半径/战力按当前等级重置。 */
+export function revive(state: GameState): void {
+  const stage = state.stageIndex;
+  const matter = state.matter;
+  const fresh = createGame(getScreenW(), getScreenH());
+  Object.assign(state, fresh);
+  state.stageIndex = stage;
+  state.matter = matter;
+  state.player.power = stage;
+  state.player.radius = STAGES[stage].r;
+}
+
 /**
  * 在玩家周围随机生成一颗自由天体。
  * 等级分布相对玩家当前等级：约一半明显更低（可吞噬），一小半同级，一小部分明显更高（需躲避）。
@@ -231,8 +238,9 @@ export function spawnEntity(
       radius = p.radius * rand(1.0, 1.25); // >= 玩家 → 不可吞
     }
   } else {
-    // 少数：明显大于玩家两阶以上 → 需躲避（碰之即死）。
-    power = Math.min(STAGES.length - 1, pr + 2 + Math.floor(Math.random() * 2));
+    // 少数：明显大于玩家两阶以上 → 需躲避（碰之即死）。上限为黑洞（末位可游玩阶段），
+    // 「宇宙」只属于结局、不会作为场上实体出现。
+    power = Math.min(STAGES.length - 2, pr + 2 + Math.floor(Math.random() * 2));
     radius = STAGES[power].r;
     state.bigSpawnTimes.push(state.time);
   }
@@ -280,10 +288,11 @@ export function spawnEntity(
 }
 
 /** 保证玩家周围始终存在「下一等级」天体（进化链的直接目标）。不计入大天体限速。
- * 与常规生成一致走盲区放置：从屏幕外漂移入屏，不破坏「开局零陨石/须探索」的体验。 */
+ * 与常规生成一致走盲区放置：从屏幕外漂移入屏，不破坏「开局零陨石/须探索」的体验。
+ * 「宇宙」是结局而非可游玩阶段：L10（黑洞）不再保底生成它。 */
 export function forceSpawnNext(state: GameState): void {
   const pr = state.stageIndex;
-  if (pr >= STAGES.length - 1) return;
+  if (pr >= STAGES.length - 2) return;
   const p = state.player;
   const power = pr + 1;
   const radius = STAGES[power].r;
@@ -292,7 +301,12 @@ export function forceSpawnNext(state: GameState): void {
     Math.min(MATTER_CAP, Math.round(radius * 0.6)),
   );
   const ang = Math.random() * Math.PI * 2;
-  const d = rand(blindZoneMin(), blindZoneMax());
+  // 大体积下一级天体（黑洞 / 宇宙）在盲区环带里距屏幕太远、几乎不可见，会被误以为「没出现」。
+  // 就近放到视野边缘并指向玩家加速入屏；早期小体积天体维持盲区放置，保留须探索的节奏。
+  const d =
+    radius >= 80
+      ? p.radius + radius + rand(SPAWN_GAP_MIN, SPAWN_GAP_MAX)
+      : rand(blindZoneMin(), blindZoneMax());
   // 与盲区常规生成一致，较高速指向玩家，快速入屏。
   const sp = rand(BLIND_ZONE_SPEED_MIN, BLIND_ZONE_SPEED_MAX);
   // 指向玩家，自然入屏。
@@ -348,16 +362,17 @@ function absorb(state: GameState, e: Entity, ring: boolean = true): void {
 }
 
 /** 吞噬结算：更低等级 / 更小的天体被吞入。
- * 黑洞及以后改为「吸入洞内」特效（无爆炸、无崩解碎屑）；普通阶段保持爆炸 + 碎屑。 */
+ * 黑洞及以后：天体不变立即消失——转为坠向洞心、缩小到不见的吸入动画（startFallIn）；
+ * 普通阶段保持爆炸 + 崩解碎屑。 */
 function swallow(state: GameState, e: Entity): void {
   const color = STAGES[e.power].color ?? "#9e9e9e";
   const blackHole = state.stageIndex >= BLACK_HOLE_STAGE;
   if (blackHole) {
-    addSuck(state, e.x, e.y, e.radius, color);
+    startFallIn(state, e);
   } else {
     shatter(state, e.x, e.y, e.radius, color, state.player.x, state.player.y);
+    absorb(state, e, true);
   }
-  absorb(state, e, !blackHole);
 }
 
 /** 玩家与某天体的碰撞结算。
@@ -373,9 +388,13 @@ function resolveCollision(state: GameState, e: Entity): void {
   if (dist(p.x, p.y, e.x, e.y) >= rr) return;
 
   // 崩解碎屑：直接吸收为物质，不再二次崩解，防止链式递归爆内存。
-  // 黑洞期间碎屑已自带飞向玩家的运动，直接吸入即可，不再追加吸积特效（防堆积卡顿）。
+  // 黑洞阶段碎屑同样坠入洞心缩小消失（与其他吞噬一致的视觉效果）。
   if (e.isDebris) {
-    absorb(state, e, state.stageIndex < BLACK_HOLE_STAGE);
+    if (state.stageIndex >= BLACK_HOLE_STAGE) {
+      startFallIn(state, e);
+    } else {
+      absorb(state, e, true);
+    }
     return;
   }
 
@@ -475,10 +494,31 @@ export function step(
   input: InputState,
   dt: number = DT,
 ): void {
-  // 宇宙结局转场：冻结玩法，仅推进时间线；结束时置 win（见文末）。
+  // 宇宙结局转场：冻结玩法，按叙事推进时间线；结束时置 win（见文末）。
   if (state.transform) {
     state.time += dt;
     state.transformT += dt;
+    const p = state.player;
+    // 阶段一：场上所有物质被吸入黑洞体内——坠向洞心、缩小至消失。
+    if (state.transformT < TRANSFORM_SUCK) {
+      for (const e of state.entities) {
+        const dx = p.x - e.x;
+        const dy = p.y - e.y;
+        const d = Math.max(1, Math.hypot(dx, dy));
+        e.x += (dx / d) * TRANSFORM_SUCK_SPEED * dt;
+        e.y += (dy / d) * TRANSFORM_SUCK_SPEED * dt;
+        e.radius = Math.max(0.4, e.radius * (1 - TRANSFORM_SUCK_SHRINK * dt));
+        if (d <= 3) e.removed = true;
+      }
+      state.entities = state.entities.filter((e) => !e.removed);
+    } else if (state.transformT < TRANSFORM_COLLAPSE) {
+      // 阶段二：物质吸尽，黑洞坍缩成一个小蓝点（渲染层叠加深蓝的蓝点覆盖坍缩过程）。
+      state.entities = [];
+      const q =
+        (state.transformT - TRANSFORM_SUCK) /
+        (TRANSFORM_COLLAPSE - TRANSFORM_SUCK);
+      p.radius = Math.max(3, p.radius * (1 - q));
+    }
     if (state.transformT >= TRANSFORM_TOTAL) {
       state.status = "win";
     }
@@ -526,8 +566,35 @@ export function step(
     }
   }
 
-  // 自由天体漂移。
+  // 黑洞引力范围：视界外、范围内、且可被吞食的天体持续被加速拉向黑洞中心（越近越强）。
+  // 直奔致死的大天体不被牵引，避免黑洞把「宇宙」之类拉进来自杀。
+  if (state.stageIndex >= BLACK_HOLE_STAGE) {
+    const p = state.player;
+    const gr = p.radius * BLACKHOLE_GRAVITY_RATIO;
+    for (const e of state.entities) {
+      if (e.removed || e.fallingIn) continue;
+      if (!edible(state, e)) continue;
+      const d = dist(p.x, p.y, e.x, e.y);
+      if (d <= 0 || d >= gr) continue;
+      const pull = BLACKHOLE_GRAVITY_PULL * (1 - d / gr);
+      e.vx += ((p.x - e.x) / d) * pull * dt;
+      e.vy += ((p.y - e.y) / d) * pull * dt;
+    }
+  }
+
+  // 自由天体漂移；黑洞吸入中的天体坠向洞心并缩小，到中心后移除。
   for (const e of state.entities) {
+    if (e.fallingIn) {
+      const p = state.player;
+      const dx = p.x - e.x;
+      const dy = p.y - e.y;
+      const d = Math.max(1, Math.hypot(dx, dy));
+      e.x += (dx / d) * BLACKHOLE_FALL_SPEED * dt;
+      e.y += (dy / d) * BLACKHOLE_FALL_SPEED * dt;
+      e.radius = Math.max(0.4, e.radius * (1 - BLACKHOLE_FALL_SHRINK * dt));
+      if (d <= 3 || e.radius <= 0.4) e.removed = true;
+      continue;
+    }
     e.x += e.vx * dt;
     e.y += e.vy * dt;
   }
@@ -540,7 +607,7 @@ export function step(
   // 碰撞结算（迭代快照：崩解产生的碎屑在下帧才参与，避免边遍历边扩数组）。
   const snapshot = state.entities.slice();
   for (const e of snapshot) {
-    if (e.removed) continue;
+    if (e.removed || e.fallingIn) continue;
     resolveCollision(state, e);
   }
 
@@ -597,8 +664,17 @@ export function step(
   ) {
     state.transform = true;
     state.transformT = 0;
-    // 转场期间冻结实体，不再结算。
-    state.entities = [];
+    // 结局叙事以「黑洞」呈现：把玩家定型为黑洞体（吸积洞身），随后的吸入/坍缩动画
+    // 都以该形态演出；卫星并入场上物质，一并被吸入黑洞。
+    const p = state.player;
+    p.power = BLACK_HOLE_STAGE;
+    p.radius = STAGES[BLACK_HOLE_STAGE].r;
+    for (const s of state.satellites) {
+      s.isSatellite = false;
+      s.angle = undefined;
+      s.orbitRadius = undefined;
+      state.entities.push(s);
+    }
     state.satellites = [];
   }
 }

@@ -1,7 +1,11 @@
 import React from "react";
-import { Stack, Positioned, Container } from "fuickjs";
+import { Stack, Positioned, Container, RepaintBoundary } from "fuickjs";
 import type { Entity, GameState } from "../store/game";
-import { WORLD_RADIUS } from "../game/config";
+import {
+  WORLD_RADIUS,
+  BLACK_HOLE_STAGE,
+  BLACKHOLE_GRAVITY_RATIO,
+} from "../game/config";
 import Planet from "./Planet";
 
 const MARGIN = 80;
@@ -41,16 +45,25 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
   const renderBody = (sx: number, sy: number, body: Entity) => {
     const r = body.radius;
     const d = r * 2;
+    // 冷行星(0-4)现在自转（球面光照渲染），发光天体（5-8）外观脉动，全部依赖 time。
+    const t = state.time;
 
-    // 实体全部程序化生成（渐变 / 裁剪绘制），不再使用图片素材
+    // 实体全部程序化生成（渐变 / 裁剪绘制），不再使用图片素材。
+    // 每颗天体用 RepaintBoundary 隔离重绘：相机/实体移动只改变图层位移（GPU 合成），
+    // 不会每帧重绘内部的渐变/BoxShadow/ClipPath；内部动画（如发光芒脉动）也只重绘自身。
     return (
       <Positioned left={sx - r} top={sy - r} width={d} height={d}>
-        <Planet radius={r} power={body.power} id={body.id} time={state.time} />
+        <RepaintBoundary>
+          <Planet radius={r} power={body.power} id={body.id} time={t} />
+        </RepaintBoundary>
       </Positioned>
     );
   };
 
+  // 自由天体画在玩家之下；吸入黑洞中的天体画在玩家之上，让物质坠过洞心、缩到消失的
+  // 过程不被黑洞黑盘盖住。
   const bodies: React.ReactNode[] = [];
+  const falling: React.ReactNode[] = [];
   for (const e of state.entities) {
     const sx = e.x - ox;
     const sy = e.y - oy;
@@ -61,7 +74,7 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
       sy > screenH + MARGIN
     )
       continue;
-    bodies.push(
+    (e.fallingIn ? falling : bodies).push(
       <React.Fragment key={`e${e.id}`}>{renderBody(sx, sy, e)}</React.Fragment>,
     );
   }
@@ -198,11 +211,42 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
           }}
         />
       </Positioned>
+      {/* 黑洞引力范围：淡紫圆环标出吸力边界，范围内可吞噬天体会被拉向洞心。 */}
+      {state.stageIndex >= BLACK_HOLE_STAGE && (
+        <Positioned
+          left={p.x - ox - p.radius * BLACKHOLE_GRAVITY_RATIO}
+          top={p.y - oy - p.radius * BLACKHOLE_GRAVITY_RATIO}
+          width={p.radius * BLACKHOLE_GRAVITY_RATIO * 2}
+          height={p.radius * BLACKHOLE_GRAVITY_RATIO * 2}
+        >
+          <Container
+            width={p.radius * BLACKHOLE_GRAVITY_RATIO * 2}
+            height={p.radius * BLACKHOLE_GRAVITY_RATIO * 2}
+            decoration={{
+              borderRadius: p.radius * BLACKHOLE_GRAVITY_RATIO,
+              gradient: {
+                type: "radial",
+                colors: [
+                  alphaColor("#7c4dff", 0),
+                  alphaColor("#7c4dff", 0.05),
+                  alphaColor("#7c4dff", 0.16),
+                ],
+                stops: [0, 0.55, 1],
+              },
+              border: {
+                width: 1.5,
+                color: alphaColor("#9d7bff", 0.5),
+              },
+            }}
+          />
+        </Positioned>
+      )}
       {bodies}
       {sats}
       <React.Fragment key="player">
         {renderBody(p.x - ox, p.y - oy, p)}
       </React.Fragment>
+      {falling}
       {fxNodes}
     </Stack>
   );

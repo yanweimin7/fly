@@ -1,5 +1,13 @@
-import React from "react";
-import { Stack, Positioned, Container, ClipPath } from "fuickjs";
+import React, { useRef } from "react";
+import {
+  Stack,
+  Positioned,
+  Container,
+  ClipPath,
+  CustomPaint,
+  CustomPainter,
+} from "fuickjs";
+import { drawPlanet } from "./PlanetPainter";
 
 interface PlanetProps {
   radius: number;
@@ -78,50 +86,6 @@ function sphere(d: number, children: React.ReactNode[]): React.ReactNode {
   );
 }
 
-/** 顶部受光高光 + 背光面阴影，两枚叠加出立体球感。 */
-function limbOverlays(d: number, dir: Dir, key: string): React.ReactNode[] {
-  return [
-    <Positioned key={`${key}-hl`} left={0} top={0} width={d} height={d}>
-      <Container
-        width={d}
-        height={d}
-        decoration={{
-          gradient: {
-            type: "linear",
-            begin: dir.begin,
-            end: dir.end,
-            colors: [
-              alphaOf("#ffffff", 0.14),
-              alphaOf("#ffffff", 0),
-              alphaOf("#ffffff", 0),
-            ],
-            stops: [0, 0.32, 1],
-          },
-        }}
-      />
-    </Positioned>,
-    <Positioned key={`${key}-sh`} left={0} top={0} width={d} height={d}>
-      <Container
-        width={d}
-        height={d}
-        decoration={{
-          gradient: {
-            type: "linear",
-            begin: dir.end,
-            end: dir.begin,
-            colors: [
-              alphaOf("#000000", 0.5),
-              alphaOf("#000000", 0.14),
-              alphaOf("#000000", 0),
-            ],
-            stops: [0, 0.55, 1],
-          },
-        }}
-      />
-    </Positioned>,
-  ];
-}
-
 /** 圆形球体：基础线性明暗渐变。 */
 function ballGradient(
   d: number,
@@ -169,103 +133,7 @@ function radialGlow(
   );
 }
 
-/** 陨石坑：暗色圆斑 + 微弱阴影。 */
-function craters(
-  d: number,
-  C: number,
-  seed: number,
-  color: string,
-  n: number,
-): React.ReactNode[] {
-  const arr: React.ReactNode[] = [];
-  for (let i = 0; i < n; i++) {
-    const r = d * (0.09 + srand(seed + i * 3) * 0.09);
-    const dx = (srand(seed + i * 5 + 1) - 0.5) * d * 0.5;
-    const dy = (srand(seed + i * 7 + 2) - 0.5) * d * 0.5;
-    arr.push(
-      <Positioned
-        key={`c${i}`}
-        left={C - r + dx}
-        top={C - r + dy}
-        width={r * 2}
-        height={r * 2}
-      >
-        <Container
-          width={r * 2}
-          height={r * 2}
-          decoration={{
-            color: alphaOf(color, 0.85),
-            borderRadius: r,
-            boxShadow: {
-              color: alphaOf("#000000", 0.4),
-              blurRadius: r * 0.6,
-              offset: { dx: r * 0.2, dy: r * 0.3 },
-            },
-          }}
-        />
-      </Positioned>,
-    );
-  }
-  return arr;
-}
-
-/** 横向条纹（行星带 / 极冠）。 */
-function band(
-  d: number,
-  y: number,
-  h: number,
-  color: string,
-  a: number,
-  key: string,
-): React.ReactNode {
-  return (
-    <Positioned key={key} left={-d * 0.06} top={y} width={d * 1.12} height={h}>
-      <Container
-        width={d * 1.12}
-        height={h}
-        decoration={{ color: alphaOf(color, a) }}
-      />
-    </Positioned>
-  );
-}
-
-/** 行星环：狭长椭圆（画在星球后面）。 */
-function ring(
-  d: number,
-  C: number,
-  color: string,
-  a: number,
-  key: string,
-): React.ReactNode {
-  const w = d * 1.5;
-  const h = Math.max(3, d * 0.26);
-  return (
-    <Positioned key={key} left={C - w / 2} top={C - h / 2} width={w} height={h}>
-      <Container
-        width={w}
-        height={h}
-        decoration={{
-          borderRadius: h / 2,
-          gradient: {
-            type: "linear",
-            begin: "centerLeft",
-            end: "centerRight",
-            colors: [
-              alphaOf(color, 0),
-              alphaOf(color, a),
-              alphaOf(color, a),
-              alphaOf(color, 0),
-            ],
-            stops: [0, 0.3, 0.7, 1],
-          },
-          boxShadow: { color: alphaOf(color, a * 0.5), blurRadius: d * 0.08 },
-        }}
-      />
-    </Positioned>
-  );
-}
-
-/** 8 条衍射芒的固定方向（角 → 渐变起止，与矩形包围盒主轴对齐）。 */
+/** 全幅径向渐变（光晕 / 核心辉光）。 */
 const SPIKE_DIRS: Array<{
   a: number;
   begin: string;
@@ -275,13 +143,10 @@ const SPIKE_DIRS: Array<{
   { a: Math.PI / 4, begin: "topLeft", end: "bottomRight" },
   { a: Math.PI / 2, begin: "topCenter", end: "bottomCenter" },
   { a: (3 * Math.PI) / 4, begin: "topRight", end: "bottomLeft" },
-  { a: Math.PI, begin: "centerRight", end: "centerLeft" },
-  { a: (5 * Math.PI) / 4, begin: "bottomRight", end: "topLeft" },
-  { a: (3 * Math.PI) / 2, begin: "bottomCenter", end: "topCenter" },
-  { a: (7 * Math.PI) / 4, begin: "bottomLeft", end: "topRight" },
 ];
 
-/** 多芒衍射光：8条细长渐变条，长度/透明度各自正弦脉动，闪耀更快更饱满。 */
+/** 多芒衍射光：4 条细长渐变条，长度/透明度各自正弦脉动。避免对每条芒加 boxShadow
+ * （blur 在 Flutter 端逐帧重绘代价高）。 */
 function multiSpikes(
   d: number,
   C: number,
@@ -330,10 +195,6 @@ function multiSpikes(
               stops: [0, 0.5, 1],
             },
             borderRadius: w,
-            boxShadow: {
-              color: alphaOf(color, opacity * 0.35),
-              blurRadius: w * 2,
-            },
           }}
         />
       </Positioned>,
@@ -343,96 +204,6 @@ function multiSpikes(
 }
 
 /* —— 各等级渲染 —— */
-
-function rockyPlanet(
-  d: number,
-  C: number,
-  id: number,
-  pal: string[],
-  craterCount: number,
-): React.ReactNode[] {
-  const dir = LIGHTS[id % LIGHTS.length];
-  const jb = (srand(id * 7) - 0.5) * 0.18;
-  const base = shade(pal[0], jb);
-  const nodes: React.ReactNode[] = [
-    sphere(d, [
-      ballGradient(
-        d,
-        dir,
-        [shade(base, 0.34), base, shade(base, -0.22), shade(base, -0.45)],
-        [0, 0.38, 0.72, 1],
-        "body",
-      ),
-      ...craters(d, C, id * 3 + 1, pal[2] ?? shade(base, -0.35), craterCount),
-      ...limbOverlays(d, dir, "limb"),
-    ]),
-  ];
-  return nodes;
-}
-
-function dwarfPlanet(d: number, C: number, id: number): React.ReactNode[] {
-  const dir = LIGHTS[id % LIGHTS.length];
-  const jb = (srand(id * 7) - 0.5) * 0.18;
-  const base = shade("#9aa8b8", jb);
-  const nodes: React.ReactNode[] = [
-    sphere(d, [
-      ballGradient(
-        d,
-        dir,
-        [shade(base, 0.3), base, shade(base, -0.2), shade(base, -0.42)],
-        [0, 0.35, 0.7, 1],
-        "body",
-      ),
-      band(d, d * 0.02, d * 0.14, "#ffffff", 0.55, "cap-n"),
-      band(d, d * 0.84, d * 0.14, "#ffffff", 0.55, "cap-s"),
-      band(d, d * 0.42, d * 0.16, shade(base, -0.12), 0.5, "mid-band"),
-      ...limbOverlays(d, dir, "limb"),
-    ]),
-  ];
-  return nodes;
-}
-
-function gasPlanet(d: number, C: number, id: number): React.ReactNode[] {
-  const dir = LIGHTS[id % LIGHTS.length];
-  const bandColors = ["#f2dcb2", "#e2b06f", "#bd7940", "#dcc9a0", "#f0e3c6"];
-  const rows = [
-    { top: 0.06, h: 0.2, ci: 1 },
-    { top: 0.24, h: 0.15, ci: 2 },
-    { top: 0.38, h: 0.18, ci: 3 },
-    { top: 0.56, h: 0.14, ci: 1 },
-    { top: 0.7, h: 0.2, ci: 2 },
-  ];
-  const bandNodes: React.ReactNode[] = rows.map((row, i) =>
-    band(
-      d,
-      d * row.top + (srand(id * 11 + i) - 0.5) * d * 0.03,
-      d * row.h,
-      bandColors[(row.ci + id) % bandColors.length],
-      0.9,
-      `band${i}`,
-    ),
-  );
-  const nodes: React.ReactNode[] = [
-    ring(d, C, "#e8d9b5", 0.7, "ring"),
-    sphere(d, [
-      ballGradient(
-        d,
-        dir,
-        [
-          shade("#f7ecd2", 0.3),
-          "#f2dcb2",
-          shade("#e2c49a", -0.15),
-          shade("#d8ac7a", -0.35),
-        ],
-        [0, 0.4, 0.75, 1],
-        "body",
-      ),
-      ...bandNodes,
-      ...limbOverlays(d, dir, "limb"),
-    ]),
-  ];
-  return nodes;
-}
 
 function glowingStar(
   d: number,
@@ -645,14 +416,15 @@ function blackhole(d: number, C: number, id: number): React.ReactNode[] {
   ];
 }
 
+/** 宇宙最终形态：整个星海被裁成圆形天体 + 外缘一圈「宇宙膜」亮环，圆而非方。 */
 function nebula(d: number): React.ReactNode[] {
-  const blobs: React.ReactNode[] = [
+  const blobs: Array<{ x: number; y: number; s: number; c: string }> = [
     { x: 0.12, y: 0.1, s: 0.75, c: "#7a5cff" },
     { x: 0.34, y: 0.3, s: 0.6, c: "#c24ee8" },
     { x: 0.55, y: 0.5, s: 0.55, c: "#ff8ad4" },
     { x: 0.08, y: 0.6, s: 0.7, c: "#4a86ff" },
   ];
-  const nodes: React.ReactNode[] = blobs.map((b, i) => {
+  const inner: React.ReactNode[] = blobs.map((b, i) => {
     const size = d * b.s;
     return (
       <Positioned
@@ -676,7 +448,7 @@ function nebula(d: number): React.ReactNode[] {
       </Positioned>
     );
   });
-  nodes.push(
+  inner.push(
     radialGlow(
       d,
       [
@@ -690,7 +462,7 @@ function nebula(d: number): React.ReactNode[] {
   );
   for (let i = 0; i < 6; i++) {
     const r = d * (0.008 + srand(i * 13 + 5) * 0.02);
-    nodes.push(
+    inner.push(
       <Positioned
         key={`spark${i}`}
         left={d * (0.1 + srand(i * 17 + 1) * 0.8) - r}
@@ -706,31 +478,40 @@ function nebula(d: number): React.ReactNode[] {
       </Positioned>,
     );
   }
-  return nodes;
+  inner.push(
+    radialGlow(
+      d,
+      [
+        alphaOf("#8ec5ff", 0),
+        alphaOf("#8ec5ff", 0),
+        alphaOf("#9bd0ff", 0.55),
+        alphaOf("#9bd0ff", 0),
+      ],
+      [0, 0.75, 0.93, 1],
+      "rim",
+    ),
+  );
+  return [sphere(d, inner)];
 }
 
 /* —— 入口 —— */
 
-export default function Planet({ radius, power, id, time }: PlanetProps) {
+function PlanetComponent({ radius, power, id, time }: PlanetProps) {
   const d = Math.max(6, radius * 2);
   const C = d / 2;
+  // 常驻 painter（创建一次复用）：冷行星(0-4)走球面光照渲染，每次 render 重建指令。
+  const painterRef = useRef<CustomPainter | null>(null);
+
+  if (power <= 4) {
+    const painter =
+      painterRef.current ?? (painterRef.current = new CustomPainter());
+    painter.clear();
+    drawPlanet(painter, power, radius, id, time ?? 0);
+    return <CustomPaint size={{ width: d, height: d }} painter={painter} />;
+  }
+
   let nodes: React.ReactNode[];
   switch (power) {
-    case 0:
-      nodes = rockyPlanet(d, C, id, ["#8d8578", "#6b6357", "#4c463d"], 2);
-      break;
-    case 1:
-      nodes = rockyPlanet(d, C, id, ["#9aa1a7", "#767d85", "#535a62"], 4);
-      break;
-    case 2:
-      nodes = dwarfPlanet(d, C, id);
-      break;
-    case 3:
-      nodes = rockyPlanet(d, C, id, ["#d2a377", "#a96f45", "#7a4a26"], 3);
-      break;
-    case 4:
-      nodes = gasPlanet(d, C, id);
-      break;
     case 5:
       nodes = glowingStar(d, C, id, "dwarf", time);
       break;
@@ -756,3 +537,5 @@ export default function Planet({ radius, power, id, time }: PlanetProps) {
     </Stack>
   );
 }
+
+export default React.memo(PlanetComponent);

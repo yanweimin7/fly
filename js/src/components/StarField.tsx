@@ -4,6 +4,7 @@ import {
   Image,
   Positioned,
   Container,
+  RepaintBoundary,
   resolveBundleAssetPath,
 } from "fuickjs";
 
@@ -101,104 +102,109 @@ function twinkle(t: number, s: Star): number {
 /** 星体：模拟真实星星照片——
  * 1) 炽白星核：径向渐变，中心过曝发白、向外迅速衰减；
  * 2) 柔和氛围光晕：更大半径的径向渐变，淡且范围广；
- * 3) 衍射芒：细、淡、长的十字条纹（亮度远低于星核），越大的星芒越长。 */
-function StarShape({ star, opacity }: { star: Star; opacity: number }) {
-  const r = star.core;
-  const haloR = r * (star.kind === "pin" ? 1.8 : 3.0);
-  const spikeW = Math.max(0.5, r * 0.36);
-  const c = Math.max(star.ray * 2, haloR * 2) / 2;
-  const outer = c * 2;
-  const spikePeak =
-    opacity *
-    (star.kind === "cross" ? 0.55 : star.kind === "glow" ? 0.35 : 0.22);
+ * 3) 衍射芒：细、淡、长的十字条纹（亮度远低于星核），越大的星芒越长。
+ * memo：相机平移的每帧（33ms）与 twinkle 不同步，闪烁窗口内的 opacity 完全一致，
+ * 只有 star 引用或 opacity 改变才重建几何，避免每帧重建 70 颗星的渐变子树。 */
+const StarShape = React.memo(
+  function StarShape({ star, opacity }: { star: Star; opacity: number }) {
+    const r = star.core;
+    const haloR = r * (star.kind === "pin" ? 1.8 : 3.0);
+    const spikeW = Math.max(0.5, r * 0.36);
+    const c = Math.max(star.ray * 2, haloR * 2) / 2;
+    const outer = c * 2;
+    const spikePeak =
+      opacity *
+      (star.kind === "cross" ? 0.55 : star.kind === "glow" ? 0.35 : 0.22);
 
-  const tip = alphaColor(star.color, 0);
-  const mid = alphaColor(star.color, Math.min(1, spikePeak));
-  const halo = (a: number) => alphaColor(star.color, a);
-  const core = (a: number) => alphaColor("#ffffff", a);
+    const tip = alphaColor(star.color, 0);
+    const mid = alphaColor(star.color, Math.min(1, spikePeak));
+    const halo = (a: number) => alphaColor(star.color, a);
+    const core = (a: number) => alphaColor("#ffffff", a);
 
-  return (
-    <Stack width={outer} height={outer}>
-      {/* 氛围光晕 */}
-      <Positioned
-        left={c - haloR}
-        top={c - haloR}
-        width={haloR * 2}
-        height={haloR * 2}
-      >
-        <Container
+    return (
+      <Stack width={outer} height={outer}>
+        {/* 氛围光晕 */}
+        <Positioned
+          left={c - haloR}
+          top={c - haloR}
           width={haloR * 2}
           height={haloR * 2}
-          decoration={{
-            gradient: {
-              type: "radial",
-              colors: [
-                halo(Math.min(1, opacity * 0.3)),
-                halo(opacity * 0.1),
-                halo(0),
-              ],
-              stops: [0.12, 0.5, 1],
-            },
-            borderRadius: haloR,
-          }}
-        />
-      </Positioned>
-      {/* 水平衍射芒 */}
-      <Positioned left={0} top={c - spikeW / 2} width={outer} height={spikeW}>
-        <Container
-          width={outer}
-          height={spikeW}
-          decoration={{
-            gradient: {
-              type: "linear",
-              begin: "centerLeft",
-              end: "centerRight",
-              colors: [tip, mid, tip],
-              stops: [0, 0.5, 1],
-            },
-            borderRadius: spikeW / 2,
-          }}
-        />
-      </Positioned>
-      {/* 竖直衍射芒 */}
-      <Positioned left={c - spikeW / 2} top={0} width={spikeW} height={outer}>
-        <Container
-          width={spikeW}
-          height={outer}
-          decoration={{
-            gradient: {
-              type: "linear",
-              begin: "topCenter",
-              end: "bottomCenter",
-              colors: [tip, mid, tip],
-              stops: [0, 0.5, 1],
-            },
-            borderRadius: spikeW / 2,
-          }}
-        />
-      </Positioned>
-      {/* 炽白星核：过曝中心 + 快速衰减 */}
-      <Positioned left={c - r} top={c - r} width={r * 2} height={r * 2}>
-        <Container
-          width={r * 2}
-          height={r * 2}
-          decoration={{
-            gradient: {
-              type: "radial",
-              colors: [
-                core(Math.min(1, 0.4 + opacity * 0.6)),
-                core(opacity * 0.55),
-                core(0),
-              ],
-              stops: [0, 0.32, 1],
-            },
-            borderRadius: r,
-          }}
-        />
-      </Positioned>
-    </Stack>
-  );
-}
+        >
+          <Container
+            width={haloR * 2}
+            height={haloR * 2}
+            decoration={{
+              gradient: {
+                type: "radial",
+                colors: [
+                  halo(Math.min(1, opacity * 0.3)),
+                  halo(opacity * 0.1),
+                  halo(0),
+                ],
+                stops: [0.12, 0.5, 1],
+              },
+              borderRadius: haloR,
+            }}
+          />
+        </Positioned>
+        {/* 水平衍射芒 */}
+        <Positioned left={0} top={c - spikeW / 2} width={outer} height={spikeW}>
+          <Container
+            width={outer}
+            height={spikeW}
+            decoration={{
+              gradient: {
+                type: "linear",
+                begin: "centerLeft",
+                end: "centerRight",
+                colors: [tip, mid, tip],
+                stops: [0, 0.5, 1],
+              },
+              borderRadius: spikeW / 2,
+            }}
+          />
+        </Positioned>
+        {/* 竖直衍射芒 */}
+        <Positioned left={c - spikeW / 2} top={0} width={spikeW} height={outer}>
+          <Container
+            width={spikeW}
+            height={outer}
+            decoration={{
+              gradient: {
+                type: "linear",
+                begin: "topCenter",
+                end: "bottomCenter",
+                colors: [tip, mid, tip],
+                stops: [0, 0.5, 1],
+              },
+              borderRadius: spikeW / 2,
+            }}
+          />
+        </Positioned>
+        {/* 炽白星核：过曝中心 + 快速衰减 */}
+        <Positioned left={c - r} top={c - r} width={r * 2} height={r * 2}>
+          <Container
+            width={r * 2}
+            height={r * 2}
+            decoration={{
+              gradient: {
+                type: "radial",
+                colors: [
+                  core(Math.min(1, 0.4 + opacity * 0.6)),
+                  core(opacity * 0.55),
+                  core(0),
+                ],
+                stops: [0, 0.32, 1],
+              },
+              borderRadius: r,
+            }}
+          />
+        </Positioned>
+      </Stack>
+    );
+  },
+  (prev, next) => prev.star === next.star && prev.opacity === next.opacity,
+);
 
 /** 全屏背景：静态星空图片铺满屏幕 + 近似真实的闪烁星空（每颗星带十字光芒）。
  * 星星按相机位置做 0.8 视差平铺滚动，玩家自由移动时背景仍有深度感。 */
@@ -235,7 +241,10 @@ export default function StarField({
 
   return (
     <Stack fit="expand">
-      <Image src={imagePath} width={width} height={height} fit="cover" />
+      {/* 背景图单独隔离重绘：整帧只做一次 GPU 合成，不会随平移/闪烁每帧重栅格化贴图 */}
+      <RepaintBoundary>
+        <Image src={imagePath} width={width} height={height} fit="cover" />
+      </RepaintBoundary>
       {starsRef.current.map((star, i) => {
         const opacity = twinkle(t, star);
         const key = `star-${i}`;
@@ -246,7 +255,10 @@ export default function StarField({
         const box = star.ray * 2;
         return (
           <Positioned key={key} left={left} top={top} width={box} height={box}>
-            <StarShape star={star} opacity={opacity} />
+            {/* 每颗星一个重绘边界：相机平移只改图层位移，闪烁仅重绘自身、不波及全屏 */}
+            <RepaintBoundary>
+              <StarShape star={star} opacity={opacity} />
+            </RepaintBoundary>
           </Positioned>
         );
       })}

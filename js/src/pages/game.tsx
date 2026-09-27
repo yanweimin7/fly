@@ -10,7 +10,7 @@ import {
   DeviceInfoService,
 } from "fuickjs";
 import { GameStore, InputState } from "../store/game";
-import { step, tryCapture, forceLevelUp } from "../game/engine";
+import { step, tryCapture, forceLevelUp, revive } from "../game/engine";
 import {
   STAGES,
   TICK_RATE,
@@ -25,6 +25,16 @@ import Hud from "../components/Hud";
 import Joystick from "../components/Joystick";
 import CaptureButton from "../components/CaptureButton";
 import Overlay from "../components/Overlay";
+
+/** 运行时 bundle 指纹：native 侧在 eval 前注入 __FUICK_BUNDLE__.sha256，
+ * 用于快速确认当前跑的是哪个包（旧包 vs 新包）。取末 6 位即可区分。 */
+function bundleFingerprint(): string {
+  const b = (globalThis as Record<string, any>).__FUICK_BUNDLE__ as
+    { sha256?: string } | undefined;
+  if (b?.sha256) return b.sha256.slice(-6);
+  if (typeof (globalThis as any).FLY_DEV !== "undefined") return "dev";
+  return "?";
+}
 
 /** 游戏主页面：整合场地、HUD、摇杆、捕获按钮与结局界面。 */
 export default function GamePage() {
@@ -63,11 +73,18 @@ export default function GamePage() {
 
   useEffect(() => store.subscribe(() => setTick((t) => t + 1)), [store]);
 
+  // 屏幕尺寸：设备信息可能异步返回且随后不再变化；只在首次拿到有效尺寸时
+  // 用真实 W/H 初始化场地（GameStore 首帧可能是 360x640 fallback），
+  // 后续再抖动不得触发 reset，避免把 revive 保留的进度抹掉。
+  const screenReadyRef = useRef(false);
   useEffect(() => {
     if (W <= 360 || H <= 640) return;
     setScreenSize(W, H);
-    store.reset(W, H);
-  }, [W, H]);
+    if (!screenReadyRef.current) {
+      screenReadyRef.current = true;
+      store.reset(W, H);
+    }
+  }, [W, H, store]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -86,7 +103,7 @@ export default function GamePage() {
         Math.hypot(e.x - state.player.x, e.y - state.player.y) <=
         state.player.radius + CAPTURE_RANGE,
     );
-  const stageName = STAGES[state.stageIndex].name;
+  const stageName = `L${STAGES[state.stageIndex].id} ${STAGES[state.stageIndex].name}`;
 
   return (
     <Scaffold backgroundColor="#000000">
@@ -101,21 +118,27 @@ export default function GamePage() {
           <GameField state={state} screenW={W} screenH={H} />
           <TransformEffect state={state} screenW={W} screenH={H} />
 
-          {/* 临时调试读数（定位玩家不移动问题后移除） */}
+          {/* 临时调试读数：末 6 位为 bundle sha256 指纹（__FUICK_BUNDLE__ 由 native 注入）。 */}
           <Positioned left={W - 150} top={90} width={145}>
             <Text
               text={`P(${Math.round(state.player.x)},${Math.round(
                 state.player.y,
               )}) n=${state.entities.length} i=${inputRef.current.intensity.toFixed(
                 2,
-              )}`}
+              )} ${bundleFingerprint()}`}
               color="#00ff88"
               fontSize={11}
             />
           </Positioned>
 
           <Positioned left={0} top={0} width={W}>
-            <Hud state={state} screenW={W} />
+            <Hud
+              screenW={W}
+              stageIndex={state.stageIndex}
+              matter={state.matter}
+              health={state.health}
+              maxHealth={state.maxHealth}
+            />
           </Positioned>
 
           <Positioned left={10} top={120}>
@@ -171,7 +194,15 @@ export default function GamePage() {
                 win={state.status === "win"}
                 stageName={stageName}
                 matter={state.matter}
-                onRestart={() => store.reset(W, H)}
+                onRestart={() => {
+                  if (state.status === "gameover") {
+                    // 死亡续玩：保留已累计物质与等级，清场回满血重来。
+                    revive(store.getState());
+                    store.notify();
+                  } else {
+                    store.reset(W, H);
+                  }
+                }}
                 screenW={W}
                 screenH={H}
               />
