@@ -1,18 +1,16 @@
 const esbuild = require("esbuild");
 const fs = require("fs");
 const path = require("path");
-const { execSync } = require("child_process");
 
 const watch = process.argv.includes("--watch");
 
-// qjsc 编译器路径（可选，不存在时跳过字节码编译）
-// 注意：qjsc 必须与引擎同版本编译，否则 .qjc 的 BC_VERSION 与引擎不匹配，
-// 运行时会报 "invalid version (NN expected=MM)"。
-// 生成方式：fuickjs_engine 目录下执行 ./build.sh qjsc
-const QJSC_PATH = path.resolve(
-  __dirname,
-  "../../fuickjs_engine/src/main/jni/vendor/quickjs/build_qjsc/qjsc",
-);
+// 注意：这里不生成 bundle.qjc。
+// 字节码由运行时的 BundleCompiler（lib/core/engine/bundle_compiler.dart）
+// 经 FFI qjs_compile_to_bytecode_out 在设备上首次加载时生成并落盘——编译器就在
+// libquickjs_ffi.dylib 内，与引擎同版本，结构上不可能出现 BC_VERSION 漂移。
+// 构建期用外部 qjsc 生成则要求它与引擎严格同版本，一旦失配就是
+// "invalid version (NN expected=MM)"，且加载失败等于页面永远打不开。
+// 代价是首屏走一次源码解析，之后命中本地 .qjc 缓存。
 
 // 可选：通过环境变量 FLY_OUTPUT_DIR 指定额外拷贝目录（如某个 Flutter 工程的 assets/js）
 const EXTRA_OUTPUT_DIR = process.env.FLY_OUTPUT_DIR
@@ -95,24 +93,12 @@ async function build() {
     console.log(`Copied bundle to ${EXTRA_OUTPUT_DIR}`);
   }
 
-  const src = path.resolve(__dirname, "dist/bundle.js");
+  // 清掉历史构建留下的 .qjc：现在字节码由运行时生成，构建产物里带上旧的
+  // 只会让加载方先撞一次 BC_VERSION 不匹配再被隔离成 .stale。
   const destBin = path.resolve(__dirname, "dist/bundle.qjc");
-
-  if (fs.existsSync(QJSC_PATH)) {
-    console.log("Compiling bundle to QuickJS bytecode...");
-    execSync(`${QJSC_PATH} -b -o ${destBin} ${src}`);
-    console.log(`Compiled to ${destBin}`);
-  } else {
-    // 不能静默跳过：残留的旧 .qjc 会被引擎当字节码加载并因 BC_VERSION 不匹配报错。
-    console.warn(
-      `[warn] qjsc not found at ${QJSC_PATH}\n` +
-        `       跳过字节码编译（将回退到 bundle.js 源码模式）。\n` +
-        `       先执行 ./build.sh qjsc 重新编译与引擎同版本的 qjsc。`,
-    );
-    if (fs.existsSync(destBin)) {
-      fs.unlinkSync(destBin);
-      console.warn(`[warn] 已删除过期字节码 ${destBin}`);
-    }
+  if (fs.existsSync(destBin)) {
+    fs.unlinkSync(destBin);
+    console.log(`Removed stale bytecode ${destBin}`);
   }
 
   console.log("Build complete.");
