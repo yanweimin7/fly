@@ -25,6 +25,8 @@ import Hud from "../components/Hud";
 import Joystick from "../components/Joystick";
 import CaptureButton from "../components/CaptureButton";
 import Overlay from "../components/Overlay";
+import StartMenu from "../components/StartMenu";
+import { preloadSfx, sfx } from "../game/sound";
 
 /** 运行时 bundle 指纹：native 侧在 eval 前注入 __FUICK_BUNDLE__.sha256，
  * 用于快速确认当前跑的是哪个包（旧包 vs 新包）。取末 6 位即可区分。 */
@@ -68,6 +70,8 @@ export default function GamePage() {
   if (!storeRef.current) storeRef.current = new GameStore(W, H);
   const store = storeRef.current;
 
+  // 开始菜单闸门：未点「开始游戏」前不推进游戏（时间/生成/碰撞全部冻结）。
+  const [started, setStarted] = useState(false);
   const inputRef = useRef<InputState>({ dx: 0, dy: 0, intensity: 0 });
   const [, setTick] = useState(0);
 
@@ -86,13 +90,20 @@ export default function GamePage() {
     }
   }, [W, H, store]);
 
+  // 预加载全部音效：首次播放时现解码会有明显延迟。
+  useEffect(() => {
+    preloadSfx();
+  }, []);
+
   useEffect(() => {
     const id = setInterval(() => {
+      // 未开始：冻结玩法（星空仍在渲染，只是不推进游戏时间）。
+      if (!started) return;
       step(store.getState(), inputRef.current, DT);
       store.notify();
     }, 1000 / TICK_RATE);
     return () => clearInterval(id);
-  }, [store]);
+  }, [store, started]);
 
   const state = store.getState();
   const canCapture = STAGES[state.stageIndex].canCapture;
@@ -115,93 +126,114 @@ export default function GamePage() {
           height={H}
         />
         <Stack fit="expand">
-          <GameField state={state} screenW={W} screenH={H} />
-          <TransformEffect state={state} screenW={W} screenH={H} />
+          {/* 未开始：只渲染星空 + 开始菜单，游戏层（天体/HUD/摇杆等）完全不挂载。 */}
+          {started && (
+            <React.Fragment>
+              <GameField state={state} screenW={W} screenH={H} />
+              <TransformEffect state={state} screenW={W} screenH={H} />
 
-          {/* 临时调试读数：末 6 位为 bundle sha256 指纹（__FUICK_BUNDLE__ 由 native 注入）。 */}
-          <Positioned left={W - 150} top={90} width={145}>
-            <Text
-              text={`P(${Math.round(state.player.x)},${Math.round(
-                state.player.y,
-              )}) n=${state.entities.length} i=${inputRef.current.intensity.toFixed(
-                2,
-              )} ${bundleFingerprint()}`}
-              color="#00ff88"
-              fontSize={11}
-            />
-          </Positioned>
-
-          <Positioned left={0} top={0} width={W}>
-            <Hud
-              screenW={W}
-              stageIndex={state.stageIndex}
-              matter={state.matter}
-              health={state.health}
-              maxHealth={state.maxHealth}
-            />
-          </Positioned>
-
-          <Positioned left={10} top={120}>
-            <GestureDetector
-              onTap={() => {
-                forceLevelUp(store.getState());
-                store.notify();
-              }}
-            >
-              <Container
-                width={56}
-                height={56}
-                alignment="center"
-                decoration={{
-                  color: "rgba(76,175,80,0.85)",
-                  borderRadius: 28,
-                  border: { color: "#ffffff", width: 2 },
-                }}
-              >
+              {/* 临时调试读数：末 6 位为 bundle sha256 指纹（__FUICK_BUNDLE__ 由 native 注入）。 */}
+              <Positioned left={W - 150} top={90} width={145}>
                 <Text
-                  text="升级"
-                  color="#ffffff"
-                  fontSize={16}
-                  fontWeight="bold"
+                  text={`P(${Math.round(state.player.x)},${Math.round(
+                    state.player.y,
+                  )}) n=${state.entities.length} i=${inputRef.current.intensity.toFixed(
+                    2,
+                  )} ${bundleFingerprint()}`}
+                  color="#00ff88"
+                  fontSize={11}
                 />
-              </Container>
-            </GestureDetector>
-          </Positioned>
+              </Positioned>
 
-          <Positioned left={18} bottom={28}>
-            <Joystick inputRef={inputRef} />
-          </Positioned>
+              <Positioned left={0} top={0} width={W}>
+                <Hud
+                  screenW={W}
+                  stageIndex={state.stageIndex}
+                  matter={state.matter}
+                  health={state.health}
+                  maxHealth={state.maxHealth}
+                />
+              </Positioned>
 
-          <Positioned right={22} bottom={40}>
-            <CaptureButton
-              enabled={hasCapturable}
-              onCapture={() => {
-                tryCapture(store.getState());
-                store.notify();
-              }}
-            />
-          </Positioned>
+              <Positioned left={10} top={120}>
+                <GestureDetector
+                  onTap={() => {
+                    sfx("tap");
+                    forceLevelUp(store.getState());
+                    store.notify();
+                  }}
+                >
+                  <Container
+                    width={56}
+                    height={56}
+                    alignment="center"
+                    decoration={{
+                      color: "rgba(76,175,80,0.85)",
+                      borderRadius: 28,
+                      border: { color: "#ffffff", width: 2 },
+                    }}
+                  >
+                    <Text
+                      text="升级"
+                      color="#ffffff"
+                      fontSize={16}
+                      fontWeight="bold"
+                    />
+                  </Container>
+                </GestureDetector>
+              </Positioned>
 
-          {state.hitFlash > 0 && (
-            <Positioned left={0} top={0} right={0} bottom={0}>
-              <Container color="rgba(255,0,0,0.22)" />
-            </Positioned>
+              <Positioned left={18} bottom={28}>
+                <Joystick inputRef={inputRef} />
+              </Positioned>
+
+              <Positioned right={22} bottom={40}>
+                <CaptureButton
+                  enabled={hasCapturable}
+                  onCapture={() => {
+                    sfx("tap");
+                    tryCapture(store.getState());
+                    store.notify();
+                  }}
+                />
+              </Positioned>
+
+              {state.hitFlash > 0 && (
+                <Positioned left={0} top={0} right={0} bottom={0}>
+                  <Container color="rgba(255,0,0,0.22)" />
+                </Positioned>
+              )}
+
+              {state.status !== "playing" && (
+                <Positioned left={0} top={0} right={0} bottom={0}>
+                  <Overlay
+                    win={state.status === "win"}
+                    stageName={stageName}
+                    matter={state.matter}
+                    onRestart={() => {
+                      sfx("tap");
+                      if (state.status === "gameover") {
+                        // 死亡续玩：保留已累计物质与等级，清场回满血重来。
+                        revive(store.getState());
+                        store.notify();
+                      } else {
+                        store.reset(W, H);
+                      }
+                    }}
+                    screenW={W}
+                    screenH={H}
+                  />
+                </Positioned>
+              )}
+            </React.Fragment>
           )}
 
-          {state.status !== "playing" && (
+          {!started && (
             <Positioned left={0} top={0} right={0} bottom={0}>
-              <Overlay
-                win={state.status === "win"}
-                stageName={stageName}
-                matter={state.matter}
-                onRestart={() => {
-                  if (state.status === "gameover") {
-                    // 死亡续玩：保留已累计物质与等级，清场回满血重来。
-                    revive(store.getState());
-                    store.notify();
-                  } else {
-                    store.reset(W, H);
-                  }
+              <StartMenu
+                onStart={() => {
+                  sfx("tap");
+                  setStarted(true);
                 }}
                 screenW={W}
                 screenH={H}

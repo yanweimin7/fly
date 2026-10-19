@@ -8,6 +8,7 @@
  */
 
 import { CustomPainter, Path } from "fuickjs";
+import type { Paint } from "fuickjs";
 import type { Vec3 } from "../game/sphere";
 import {
   bandSegments,
@@ -29,11 +30,15 @@ import type {
   BandDef,
   CraterDef,
   PlanetShape,
+  RockOutline,
   SurfaceFeel,
 } from "../game/planetShape";
 import { PLANET_GFX } from "../game/config";
 
 type Lod = "simple" | "medium" | "full";
+
+const TAU = Math.PI * 2;
+const mod2pi = (a: number): number => ((a % TAU) + TAU) % TAU;
 
 const DISK_RECT = (r: number) => ({
   left: 0,
@@ -41,6 +46,120 @@ const DISK_RECT = (r: number) => ({
   width: r * 2,
   height: r * 2,
 });
+
+/* —— 不规则岩石轮廓（陨石） —— */
+
+/** 轮廓顶点 → 屏幕坐标序列（角度升序）。 */
+function rockPts(
+  outline: RockOutline,
+  r: number,
+  C: number,
+): Array<{ x: number; y: number }> {
+  return outline.verts.map((v) => ({
+    x: C + Math.cos(v.th) * v.rr * r,
+    y: C + Math.sin(v.th) * v.rr * r,
+  }));
+}
+
+/** 岩石轮廓 → 平滑闭合 Path（中点二次贝塞尔，消掉多边形折角）。 */
+export function rockOutlinePath(
+  outline: RockOutline,
+  r: number,
+  C: number,
+): Path {
+  const pts = rockPts(outline, r, C);
+  const n = pts.length;
+  const path = new Path();
+  path.moveTo((pts[n - 1].x + pts[0].x) / 2, (pts[n - 1].y + pts[0].y) / 2);
+  for (let i = 0; i < n; i++) {
+    const c = pts[i];
+    const to = pts[(i + 1) % n];
+    path.quadraticBezierTo(c.x, c.y, (c.x + to.x) / 2, (c.y + to.y) / 2);
+  }
+  path.close();
+  return path;
+}
+
+/** 任意角度的轮廓半径（相邻顶点线性插值，首尾环绕）。 */
+function rockRrAt(outline: RockOutline, th: number): number {
+  const t = mod2pi(th);
+  const vs = outline.verts;
+  for (let i = 0; i < vs.length; i++) {
+    const a = vs[i];
+    const b = vs[(i + 1) % vs.length];
+    const a0 = a.th;
+    let a1 = b.th;
+    if (a1 < a0) a1 += TAU;
+    let tt = t;
+    if (tt < a0) tt += TAU;
+    if (tt >= a0 && tt <= a1) {
+      const k = a1 > a0 ? (tt - a0) / (a1 - a0) : 0;
+      return a.rr + (b.rr - a.rr) * k;
+    }
+  }
+  return 1;
+}
+
+/**
+ * 轮廓在角度区间 [a0, a0+sweep]（sweep 可负）内的采样点，含两端插值边界点。
+ * 用于把晨昏线算出的 day/night 弧（原本按正圆 arcTo）贴到不规则轮廓上。
+ */
+function rockArcPoints(
+  outline: RockOutline,
+  r: number,
+  C: number,
+  a0: number,
+  sweep: number,
+): Array<{ x: number; y: number }> {
+  const len = Math.abs(sweep);
+  const sign = sweep >= 0 ? 1 : -1;
+  const ptAt = (ang: number) => {
+    const rr = rockRrAt(outline, ang);
+    return {
+      x: C + Math.cos(ang) * rr * r,
+      y: C + Math.sin(ang) * rr * r,
+    };
+  };
+  const pts = [ptAt(a0)];
+  for (const v of outline.verts) {
+    const d = mod2pi(v.th - a0);
+    const inside = sign > 0 ? d <= len : d >= TAU - len;
+    if (inside && d > 1e-6 && d < len - 1e-6) {
+      pts.push({
+        x: C + Math.cos(v.th) * v.rr * r,
+        y: C + Math.sin(v.th) * v.rr * r,
+      });
+    }
+  }
+  pts.push(ptAt(a0 + sweep));
+  return pts;
+}
+
+/** 折线 stroke：≥3 点走中点二次贝塞尔平滑，段内不露多边形折角。 */
+function strokeSmoothPath(
+  p: CustomPainter,
+  pts: Array<{ x: number; y: number }>,
+  paint: Paint,
+): void {
+  if (pts.length < 2) return;
+  const path = new Path();
+  if (pts.length === 2) {
+    path.moveTo(pts[0].x, pts[0].y);
+    path.lineTo(pts[1].x, pts[1].y);
+  } else {
+    path.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const c = pts[i];
+      const to = {
+        x: (pts[i].x + pts[i + 1].x) / 2,
+        y: (pts[i].y + pts[i + 1].y) / 2,
+      };
+      path.quadraticBezierTo(c.x, c.y, to.x, to.y);
+    }
+    path.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+  }
+  p.drawPath(path, paint);
+}
 
 /** 由实体属性生成整组绘制指令（先 clear 再调用本函数）。 */
 export function drawPlanet(
@@ -69,11 +188,17 @@ export function drawPlanet(
     drawRingHalf(p, ring.rIn, ring.rOut, ring.color, ring.i, r, C, false);
   }
   p.save();
-  const disk = new Path();
-  disk.addOval({ left: 0, top: 0, width: d, height: d });
+  // 陨石裁石头轮廓（不规则闭合路径），其余行星裁正圆盘。
+  let disk: Path;
+  if (shape.rock) {
+    disk = rockOutlinePath(shape.rock, r, C);
+  } else {
+    disk = new Path();
+    disk.addOval({ left: 0, top: 0, width: d, height: d });
+  }
   p.clipPath(disk);
 
-  drawBodyBase(p, shape.base, r, C, light, feel);
+  drawBodyBase(p, shape.base, r, C, light, feel, shape.rock ? disk : undefined);
   drawPatches(p, shape, r, C, time);
   if (shape.kind === "dwarf" || shape.kind === "gas") {
     drawBands(p, shape.omega, shape.tilt, shape.bands, r, time);
@@ -88,7 +213,7 @@ export function drawPlanet(
 
   p.restore();
 
-  drawRims(p, r, C, light);
+  drawRims(p, r, C, light, shape.rock);
   drawLimb(p, r, C);
   if (lod === "full") {
     drawGlint(p, shape.tilt, shape.omega, shape.glint, r, time, light, feel);
@@ -108,6 +233,7 @@ function drawBodyBase(
   C: number,
   light: Vec3,
   feel: SurfaceFeel,
+  rockFill?: Path,
 ) {
   // 屏幕方向朝光 = (lx, −ly)；亮端对准光源。
   const bright = alignFromDir(light.x, -light.y);
@@ -120,7 +246,7 @@ function drawBodyBase(
   const small = r < 10;
   const sc = small ? c * 1.35 : c;
   const dark2 = clamp(-0.45 * sc, -0.85, -0.18);
-  p.drawCircle({ dx: C, dy: C }, r, {
+  const paint: Paint = {
     gradient: {
       type: "linear",
       colors: [
@@ -133,7 +259,10 @@ function drawBodyBase(
       begin: bright,
       end: dark,
     },
-  });
+  };
+  // 陨石：石头轮廓路径填充（渐变按路径 bounds，≈ 圆形，明暗方向不变）。
+  if (rockFill) p.drawPath(rockFill, paint);
+  else p.drawCircle({ dx: C, dy: C }, r, paint);
 }
 
 /* —— 云带 / 极冠：前半球折线 stroke，随自转流动 —— */
@@ -476,37 +605,69 @@ function drawNightCap(
 
 /* —— 轮廓：受光侧细白边 / 夜侧压暗 —— */
 
-function drawRims(p: CustomPainter, r: number, C: number, light: Vec3) {
+function drawRims(
+  p: CustomPainter,
+  r: number,
+  C: number,
+  light: Vec3,
+  rock?: RockOutline,
+) {
   const R = PLANET_GFX.rim;
   const rect = DISK_RECT(r);
   const sw = Math.max(1, r * R.stroke);
   const cap = shadowCap(light, C, C, r);
+  const blur = r * R.blur;
+  const dayPaint: Paint = {
+    color: alphaOf("#ffffff", R.dayAlpha),
+    style: "stroke",
+    strokeWidth: sw,
+    strokeCap: "round",
+    blur,
+    isAntiAlias: true,
+  };
+  const nightPaint: Paint = {
+    color: alphaOf("#000000", R.nightAlpha),
+    style: "stroke",
+    strokeWidth: sw,
+    strokeCap: "round",
+    blur,
+    isAntiAlias: true,
+  };
   if (cap.kind === "full") {
     // 光在正后方：整盘入夜只剩一条朝光轮廓辨方向。
+    if (rock) {
+      strokeSmoothPath(p, [...rockPts(rock, r, C), rockPts(rock, r, C)[0]], {
+        ...dayPaint,
+        color: alphaOf("#ffffff", R.dayAlpha * 0.5),
+      });
+      return;
+    }
     p.drawArc(rect, 0, Math.PI * 2, false, {
       color: alphaOf("#ffffff", R.dayAlpha * 0.5),
       style: "stroke",
       strokeWidth: sw,
-      blur: r * R.blur,
+      blur,
       isAntiAlias: true,
     });
     return;
   }
   if (cap.kind !== "cap" || !cap.rim) return;
-  p.drawArc(rect, cap.rim.dayStart, cap.rim.daySweep, false, {
-    color: alphaOf("#ffffff", R.dayAlpha),
-    style: "stroke",
-    strokeWidth: sw,
-    blur: r * R.blur,
-    isAntiAlias: true,
-  });
-  p.drawArc(rect, cap.rim.nightStart, cap.rim.nightSweep, false, {
-    color: alphaOf("#000000", R.nightAlpha),
-    style: "stroke",
-    strokeWidth: sw,
-    blur: r * R.blur,
-    isAntiAlias: true,
-  });
+  if (rock) {
+    // 石头轮廓：把晨昏线的 day/night 弧贴到不规则轮廓上（切段 + 平滑 stroke）。
+    strokeSmoothPath(
+      p,
+      rockArcPoints(rock, r, C, cap.rim.dayStart, cap.rim.daySweep),
+      dayPaint,
+    );
+    strokeSmoothPath(
+      p,
+      rockArcPoints(rock, r, C, cap.rim.nightStart, cap.rim.nightSweep),
+      nightPaint,
+    );
+    return;
+  }
+  p.drawArc(rect, cap.rim.dayStart, cap.rim.daySweep, false, dayPaint);
+  p.drawArc(rect, cap.rim.nightStart, cap.rim.nightSweep, false, nightPaint);
 }
 
 /* —— 整体半球暗边（纵深）：径向渐变 —— */

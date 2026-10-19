@@ -73,11 +73,6 @@ export const MAX_HEALTH = 100;
 /** 受击闪烁持续帧数。 */
 export const HIT_FLASH_FRAMES = 12;
 
-/** 撞击爆炸：被撞毁的天体崩解出的陨石数量。 */
-export const EXPLOSION_METEORS = 10;
-/** 撞击爆炸：崩解陨石的径向飞溅速度范围（px/s）。 */
-export const DEBRIS_SPEED_MIN = 70;
-export const DEBRIS_SPEED_MAX = 210;
 /** 撞击爆炸：扩散圆环特效的寿命（秒）。 */
 export const EFFECT_LIFE = 0.6;
 
@@ -85,8 +80,10 @@ export const EFFECT_LIFE = 0.6;
 export const BIG_PER_MINUTE = 2;
 export const BIG_WINDOW = 60;
 
-/** 单次吞噬获得的物质下限 / 上限（按半径折算后 clamp）。 */
-export const MATTER_FLOOR = 2;
+/** 单次吞噬获得的物质：L1 陨石恒定 2 点（L1→L2 阈值 100，故每颗陨石 = 进度条 2%）。
+ * 更高等级的天体按半径折算（体量越大物质越多），再 clamp 到 [下限, 上限]。 */
+export const MATTER_PER_METEOR = 2;
+export const MATTER_FLOOR = MATTER_PER_METEOR;
 export const MATTER_CAP = 2000;
 /** 吞噬后玩家半径的增量（像素）与单等级内增长上限系数。 */
 export const GROWTH = 0.6;
@@ -222,6 +219,20 @@ export const FINAL_MATTER = 5000;
 export const BLACKHOLE_GRAVITY_RATIO = 2.6;
 /** 黑洞引力加速度（px/s²）：范围内可吞噬天体被加速拉向黑洞中心，越近越强。 */
 export const BLACKHOLE_GRAVITY_PULL = 120;
+/** 场上黑洞把「玩家」拉过去的加速度（px/s²）：从引力圈边缘（MIN）到洞心（MAX）线性上升。
+ * MIN 也高于玩家速度 PLAYER_SPEED —— 只要进了引力圈就再也挣不出去，引力圈即死亡线。
+ * （天体被黑洞吸入走的是另一条曲线 BLACKHOLE_GRAVITY_PULL，边缘趋近 0，可被挣脱。） */
+export const BLACKHOLE_PULL_PLAYER_MIN = 130;
+export const BLACKHOLE_PULL_PLAYER_MAX = 420;
+/** 黑洞生成时必须让开的额外余量（像素）：引力圈是死亡线，黑洞绝不能生成为「一出现
+ * 就把人圈进去」——生成点至少要落在 引力半径 + 玩家半径 + 该余量 之外，
+ * 给玩家「看见紫圈 → 转向躲开」的余地。 */
+export const BLACKHOLE_SPAWN_CLEARANCE = 90;
+/** 黑洞自身的漂移速度（px/s）：远小于普通天体的 BLIND_ZONE_SPEED（20~40）。
+ * 黑洞不锁定玩家（见 engine 的 spawnHeading），但按常速乱飘十几秒就会蹭到人，
+ * 对玩家仍像「突然死亡」；压慢到 6~16 让它变成看得见、能绕开的慢性威胁。 */
+export const BLACKHOLE_DRIFT_SPEED_MIN = 6;
+export const BLACKHOLE_DRIFT_SPEED_MAX = 16;
 /** 黑洞吸入坠向中心的移动速度（px/s）。 */
 export const BLACKHOLE_FALL_SPEED = 320;
 /** 黑洞吸入时天体半径的比例收缩速率（1/s）：半径逐帧 ×(1 − 速率×dt)，到中心时趋于不可见。 */
@@ -229,6 +240,10 @@ export const BLACKHOLE_FALL_SHRINK = 2.5;
 
 /** 黑洞吸入特效：颗粒从被吞处螺旋收束吸入洞内的总寿命（秒）。 */
 export const SUCK_EFFECT_LIFE = 0.7;
+/** 吸积颗粒主色（吸积盘偏紫，与黑洞引力范围圈同色系）。 */
+export const SUCK_COLOR = "#c9a6ff";
+/** 同一位置吸积特效的最小触发间隔（秒）：黑洞连续吞噬时避免每帧刷特效。 */
+export const SUCK_MIN_GAP = 0.15;
 
 /** 宇宙结局转场四阶段时长（秒）：
  * 0~SUCK：场上所有物质吸入黑洞体内；SUCK~COLLAPSE：黑洞坍缩成一个小蓝点；
@@ -325,4 +340,10 @@ export const PLANET_GFX = {
   },
   /** LOD：直径（px）低于阈值逐级降档（简单→纯圆、中→少坑无光斑）。 */
   lod: { simple: 14, full: 20 },
+  /** L1 陨石：石头式不规则轮廓（半径系数下限 / 相邻顶点高频粗糙抖动，均相对圆半径 r）。
+   *  只改视觉轮廓，碰撞仍按 STAGES 的 r（外接圆）——玩感不变，看着是块石头。 */
+  rock: {
+    minRr: 0.72,
+    rough: 0.06,
+  },
 } as const;

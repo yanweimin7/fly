@@ -32,13 +32,13 @@ function rgb(h: string): [number, number, number] {
 
 function fromRgb(r: number, g: number, b: number): string {
   const c = (v: number) =>
-    Math.round(Math.max(0, Math.min(1, v)) * 255)
+    Math.round(Math.max(0, Math.min(255, v)))
       .toString(16)
       .padStart(2, "0");
   return `#${c(r)}${c(g)}${c(b)}`;
 }
 
-/** t>0 提亮、t<0 压暗（t ∈ [-1,1]）。 */
+/** t>0 提亮、t<0 压暗（t ∈ [-1,1]）。rgb() 给出的是 0~255 通道值，故在此域内插值。 */
 function shade(h: string, t: number): string {
   const [r, g, b] = rgb(h);
   const f = (v: number) => (t > 0 ? v + (255 - v) * t : v * (1 + t));
@@ -342,18 +342,19 @@ function glowingStar(
 
 function blackhole(d: number, C: number, id: number): React.ReactNode[] {
   const jb = (srand(id * 7) - 0.5) * 0.1;
-  const s = d * 0.36; // 事件视界半径：纯黑「洞」本体，占主体
-  const ph = Math.max(1.2, d * 0.016); // 光子环宽度
+  const s = d * 0.34; // 事件视界半径：纯黑「洞」本体，占主体
+  const ph = Math.max(2.2, d * 0.026); // 光子环宽度：细了会在纯黑星空上被背景噪点淹没
   return [
-    // 外围极淡的引力透镜余晖（不喧宾夺主）
+    // 外围引力透镜余晖：紫调光晕铺满全幅，保证黑洞在纯黑星空上仍有可辨识的轮廓
     radialGlow(
       d,
       [
-        alphaOf(shade("#5b2a8a", jb), 0.16),
-        alphaOf("#2a1650", 0.06),
+        alphaOf(shade("#7b3fd4", jb), 0.5),
+        alphaOf("#5b2a8a", 0.26),
+        alphaOf("#2a1650", 0.08),
         alphaOf("#2a1650", 0),
       ],
-      [0, 0.5, 1],
+      [0, 0.42, 0.72, 1],
       "halo",
     ),
     // 吸积盘：环绕视界外缘的亮环（白热→橙→渐隐），盘面清晰可见
@@ -363,9 +364,9 @@ function blackhole(d: number, C: number, id: number): React.ReactNode[] {
         alphaOf("#ff7a33", 0),
         alphaOf("#fff2cc", 0),
         alphaOf("#fff2cc", 0),
-        alphaOf("#fff7e0", 0.95),
-        alphaOf("#ffc890", 0.55),
-        alphaOf("#ff8a3c", 0.18),
+        alphaOf("#fff7e0", 1),
+        alphaOf("#ffd9a8", 0.85),
+        alphaOf("#ff8a3c", 0.4),
         alphaOf("#ff5a22", 0),
       ],
       [0, 0.4, 0.68, 0.78, 0.88, 0.96, 1],
@@ -403,11 +404,11 @@ function blackhole(d: number, C: number, id: number): React.ReactNode[] {
           borderRadius: s,
           border: {
             width: ph,
-            color: alphaOf("#fff7e0", 0.7),
+            color: alphaOf("#fff7e0", 0.95),
           },
           boxShadow: {
-            color: alphaOf("#ffd9a0", 0.3),
-            blurRadius: d * 0.02,
+            color: alphaOf("#ffd9a0", 0.6),
+            blurRadius: d * 0.03,
             spreadRadius: 0,
           },
         }}

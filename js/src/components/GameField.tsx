@@ -89,6 +89,52 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
     );
   }
 
+  // 黑洞引力范围圈：淡紫径向渐变 + 细边，标出吸力边界。
+  // 玩家自身是黑洞时圈画在玩家身上；场上会吸玩家的黑洞也画同样的圈——两者视觉一致。
+  const gravityRing = (cx: number, cy: number, r: number, key: string) => {
+    const gr = r * BLACKHOLE_GRAVITY_RATIO;
+    return (
+      <Positioned
+        key={key}
+        left={cx - gr}
+        top={cy - gr}
+        width={gr * 2}
+        height={gr * 2}
+      >
+        <Container
+          width={gr * 2}
+          height={gr * 2}
+          decoration={{
+            borderRadius: gr,
+            gradient: {
+              type: "radial",
+              colors: [
+                alphaColor("#7c4dff", 0.02),
+                alphaColor("#7c4dff", 0.12),
+                alphaColor("#8b5cf6", 0.3),
+              ],
+              stops: [0, 0.55, 1],
+            },
+            border: {
+              width: 2,
+              color: alphaColor("#b79bff", 0.85),
+            },
+          }}
+        />
+      </Positioned>
+    );
+  };
+  const gravityRings: React.ReactNode[] = [];
+  if (state.stageIndex >= BLACK_HOLE_STAGE) {
+    gravityRings.push(gravityRing(p.x - ox, p.y - oy, p.radius, "gh-self"));
+  }
+  for (const e of state.entities) {
+    if (e.removed || e.power < BLACK_HOLE_STAGE) continue;
+    if (e.x - ox < -MARGIN || e.x - ox > screenW + MARGIN) continue;
+    if (e.y - oy < -MARGIN || e.y - oy > screenH + MARGIN) continue;
+    gravityRings.push(gravityRing(e.x - ox, e.y - oy, e.radius, `gh${e.id}`));
+  }
+
   // 撞击爆炸特效：随时间扩散、淡出的圆环。
   const fxNodes: React.ReactNode[] = [];
   const px = p.x - ox;
@@ -96,18 +142,22 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
   for (const fx of state.effects) {
     if (fx.type === "suck") {
       // 黑洞吸入特效：颗粒从远处螺旋收束飞入洞心，随推进逐步变小并淡入洞内。
+      // 洞心取特效自身的 (fx.x, fx.y)——玩家自身黑洞吸入天体、以及玩家被场上黑洞
+      // 吸入，走的是同一段渲染，只是洞心不同。
       // 注意：颗粒只用纯色圆形绘制（不用 boxShadow/渐变），黑洞连续吞噬时数量多，
       // 模糊阴影/渐变每帧重绘会造成 Flutter 端卡顿。
       const t = Math.min(1, fx.age / fx.life);
       const ease = 1 - Math.pow(1 - t, 2);
-      const sinkR = Math.max(1, p.radius * 0.75);
+      const cx = fx.x - ox;
+      const cy = fx.y - oy;
+      const sinkR = Math.max(1, fx.sinkR ?? p.radius * 0.75);
       const motes = 10;
       for (let i = 0; i < motes; i++) {
         const ai = (i / motes) * Math.PI * 2 + ((i * 5) % 7);
         const rf = 0.55 + 0.45 * ((i * 0.6180339) % 1);
         const dd = sinkR + (fx.maxR * rf - sinkR) * (1 - ease);
-        const mx = px + Math.cos(ai - t * 5.2) * dd;
-        const my = py + Math.sin(ai - t * 5.2) * dd;
+        const mx = cx + Math.cos(ai - t * 5.2) * dd;
+        const my = cy + Math.sin(ai - t * 5.2) * dd;
         const size = Math.max(0.8, fx.maxR * 0.05 * (1 - t));
         const oa =
           Math.pow(1 - t, 1.5) *
@@ -188,6 +238,10 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
     }
   }
 
+  const playerNode = (
+    <React.Fragment key="player">{renderBody(px, py, p)}</React.Fragment>
+  );
+
   return (
     <Stack width={screenW} height={screenH}>
       {" "}
@@ -211,42 +265,15 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
           }}
         />
       </Positioned>
-      {/* 黑洞引力范围：淡紫圆环标出吸力边界，范围内可吞噬天体会被拉向洞心。 */}
-      {state.stageIndex >= BLACK_HOLE_STAGE && (
-        <Positioned
-          left={p.x - ox - p.radius * BLACKHOLE_GRAVITY_RATIO}
-          top={p.y - oy - p.radius * BLACKHOLE_GRAVITY_RATIO}
-          width={p.radius * BLACKHOLE_GRAVITY_RATIO * 2}
-          height={p.radius * BLACKHOLE_GRAVITY_RATIO * 2}
-        >
-          <Container
-            width={p.radius * BLACKHOLE_GRAVITY_RATIO * 2}
-            height={p.radius * BLACKHOLE_GRAVITY_RATIO * 2}
-            decoration={{
-              borderRadius: p.radius * BLACKHOLE_GRAVITY_RATIO,
-              gradient: {
-                type: "radial",
-                colors: [
-                  alphaColor("#7c4dff", 0),
-                  alphaColor("#7c4dff", 0.05),
-                  alphaColor("#7c4dff", 0.16),
-                ],
-                stops: [0, 0.55, 1],
-              },
-              border: {
-                width: 1.5,
-                color: alphaColor("#9d7bff", 0.5),
-              },
-            }}
-          />
-        </Positioned>
-      )}
+      {/* 黑洞引力范围：淡紫圆环标出吸力边界。玩家自身是黑洞时画在玩家身上；
+          场上那颗会吸玩家的黑洞也画同样的圈——两者视觉一致，危险可提前识别。 */}
+      {gravityRings}
       {bodies}
       {sats}
-      <React.Fragment key="player">
-        {renderBody(p.x - ox, p.y - oy, p)}
-      </React.Fragment>
+      {/* 被吸入时把玩家挪到 falling 层之后画：坠向洞心缩小消失的过程不被黑洞黑盘盖住。 */}
+      {state.swallow ? null : playerNode}
       {falling}
+      {state.swallow ? playerNode : null}
       {fxNodes}
     </Stack>
   );

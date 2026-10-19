@@ -21,7 +21,7 @@ export function rgbColor(h: string): [number, number, number] {
 
 export function fromRgb(r: number, g: number, b: number): string {
   const c = (v: number) =>
-    Math.round(Math.max(0, Math.min(1, v)) * 255)
+    Math.round(Math.max(0, Math.min(255, v)))
       .toString(16)
       .padStart(2, "0");
   return `#${c(r)}${c(g)}${c(b)}`;
@@ -135,6 +135,15 @@ export interface RingDef {
   color: string;
 }
 
+/**
+ * 不规则岩石轮廓（陨石专用）：按角度升序的顶点序列。
+ * th = 屏幕角（弧度，0 = 3 点钟方向、y 向下，与 drawArc 同约定）；
+ * rr = 该方向的半径系数（×r）。渲染端做中点贝塞尔平滑，碰撞仍按圆半径 r。
+ */
+export interface RockOutline {
+  verts: Array<{ th: number; rr: number }>;
+}
+
 export interface PlanetShape {
   power: number;
   kind: PlanetKind;
@@ -156,6 +165,8 @@ export interface PlanetShape {
   /** 每颗行星独立的「质感」参数：光影强弱 / 纹理密度都从这里差异化。 */
   feel: SurfaceFeel;
   ring?: RingDef;
+  /** 陨石的不规则岩石轮廓（仅 L1，见 buildRockOutline）。 */
+  rock?: RockOutline;
 }
 
 /** 每颗行星按 id 播种的质感档位，让纹理密度与光影风格在星球间各不相同。 */
@@ -201,6 +212,30 @@ const GAS_BAND_COLORS = ["#d5c9bc", "#bba68e", "#9e8570", "#c8b7a4", "#dcd3c8"];
 
 /** 纬度带：从「屏幕 top 分数」换算中心纬度（y = C − R·sinφ）。 */
 const topToPhi = (top: number): number => Math.asin(1 - 2 * top);
+
+/**
+ * 陨石的石头式不规则轮廓：8~10 个顶点，半径系数在 [minRr, ~1] 间波动。
+ * 两层随机：大块起伏（石块本身的凹凸）+ 相邻高频抖动（粗糙感）；
+ * 顶点角也带抖动，避免出现「正 N 边形」的规整感。按 id 播种、缓存后恒定。
+ */
+function buildRockOutline(id: number): RockOutline {
+  const R = PLANET_GFX.rock;
+  const n = 8 + Math.floor(srand(id * 211 + 9) * 3); // 8~10 个顶点
+  const verts: RockOutline["verts"] = [];
+  for (let i = 0; i < n; i++) {
+    const jitterA =
+      (srand(id * 223 + i * 3 + 1) - 0.5) * ((Math.PI * 2) / n) * 0.6;
+    const th =
+      ((((i / n) * Math.PI * 2 + jitterA) % (Math.PI * 2)) + Math.PI * 2) %
+      (Math.PI * 2);
+    const big = srand(id * 227 + i * 7 + 2); // 大块起伏
+    const small = srand(id * 229 + i * 11 + 3); // 高频粗糙抖动
+    const rr = 1 - (1 - R.minRr) * (0.35 + big * 0.65) - small * R.rough;
+    verts.push({ th, rr: clamp(rr, R.minRr * 0.92, 1) });
+  }
+  verts.sort((a, b) => a.th - b.th);
+  return { verts };
+}
 
 /** 岩石行星色相锚点（度）：铁锈/赭石、暖棕、沙色、橄榄、冷灰蓝、蓝灰、灰绿。
  * 每颗行星按 id 从里取一个并抖动 ±20°，饱和度取低段、明度中段——星球间颜色
@@ -304,6 +339,9 @@ function buildRockShape(power: number, id: number): PlanetShape {
     patches[mi].alpha = Math.max(patches[mi].alpha, R.mottle.alphaMax);
   }
 
+  // L1 陨石：石头式不规则轮廓（只改视觉，碰撞仍按圆半径 r）。
+  const rock = power === 0 ? buildRockOutline(id) : undefined;
+
   return {
     power,
     kind: "rock",
@@ -317,6 +355,7 @@ function buildRockShape(power: number, id: number): PlanetShape {
     bands: [],
     glint: { phi: R.glint.phi, mu0: (srand(id * 37 + 9) - 0.5) * 1.8 },
     feel: buildFeel(id),
+    rock,
   };
 }
 

@@ -31,8 +31,6 @@ export interface Entity {
   orbitRadius?: number;
   /** 引擎内部标记：本帧已被吞噬 / 撞击消耗，待移除。 */
   removed?: boolean;
-  /** 崩解产生的碎屑：碰撞时只被吸收、不再二次崩解（防止链式递归）。 */
-  isDebris?: boolean;
   /** 黑洞吸入中：正坠向黑洞中心并缩小，到达中心后移除（不再参与碰撞）。 */
   fallingIn?: boolean;
 }
@@ -57,6 +55,17 @@ export interface Effect {
   color: string;
   /** 特效类型，缺省为 ring。 */
   type?: EffectType;
+  /** suck 专用：颗粒最终收束进去的洞心半径（像素），缺省时回退到玩家半径。 */
+  sinkR?: number;
+}
+
+/** 玩家被场上黑洞吸入的过程：记录那颗黑洞（跟随其移动），直到坠入洞心判定死亡。 */
+export interface Swallow {
+  /** 黑洞实体 id（黑洞自身仍在漂移，每帧回填最新坐标）。 */
+  id: number;
+  /** 黑洞当前世界坐标（黑洞消失后用它兜底）。 */
+  x: number;
+  y: number;
 }
 
 export interface GameState {
@@ -86,6 +95,8 @@ export interface GameState {
   transform: boolean;
   /** 转场已进行时长（秒），驱动各个阶段。 */
   transformT: number;
+  /** 正在被场上黑洞吸入（玩家坠向洞心缩小中）；结束后置 status="gameover"。 */
+  swallow?: Swallow;
 }
 
 /** 摇杆输入：dx/dy 为相对起点的位移（像素），intensity 为 0~1 强度。 */
