@@ -495,6 +495,68 @@ function nebula(d: number): React.ReactNode[] {
   return [sphere(d, inner)];
 }
 
+/* —— 3D 恒星叠层 —— */
+
+/** 3D 自发光恒星（power 5-8）的 2D 叠层：只画外圈光环与衍射芒，中心透明，
+ * 让底层 3D 恒星本体露出来。 */
+export function StarAura({ radius, power, id, time }: PlanetProps) {
+  const d = Math.max(6, radius * 2);
+  const C = d / 2;
+  const t = time ?? 0;
+  const jb = (srand(id * 7) - 0.5) * 0.1;
+
+  // 光晕：中心半透明 → 边缘淡出（与旧 2D 星同款干净渐变，3D 纹理仍透出来）。
+  const halo = (c: string, a: number): React.ReactNode =>
+    radialGlow(
+      d,
+      [alphaOf(c, a), alphaOf(c, a * 0.36), alphaOf(c, 0)],
+      [0, 0.5, 1],
+      "halo",
+    );
+
+  // 白热核心：从中心渐隐到盒边（避免在中途截止产生硬边圆圈）。
+  const core = (c: string): React.ReactNode =>
+    radialGlow(
+      d,
+      [alphaOf(c, 0.45), alphaOf(c, 0.15), alphaOf(c, 0)],
+      [0, 0.45, 1],
+      "core",
+    );
+
+  const nodes: React.ReactNode[] = [];
+  switch (power) {
+    case 5:
+      nodes.push(halo(shade("#ffd27a", jb), 0.5));
+      nodes.push(core("#fff8e0"));
+      nodes.push(
+        ...multiSpikes(d, C, shade("#ffd27a", jb), 0.45, t, 5.5, "spike"),
+      );
+      break;
+    case 6:
+      nodes.push(halo("#fff7dc", 0.6));
+      nodes.push(core("#ffffff"));
+      nodes.push(...multiSpikes(d, C, "#ffffff", 0.6, t, 5, "spike"));
+      break;
+    case 7:
+      nodes.push(halo(shade("#ff8a5c", jb), 0.55));
+      nodes.push(core("#ffe3c8"));
+      nodes.push(
+        ...multiSpikes(d, C, shade("#ffd0b0", jb), 0.5, t, 6, "spike"),
+      );
+      break;
+    default: // 8 中子星：芒更多更细
+      nodes.push(halo("#e8ddff", 0.5));
+      nodes.push(core("#ffffff"));
+      nodes.push(...multiSpikes(d, C, "#ffffff", 0.7, t, 8, "spike"));
+      break;
+  }
+  return (
+    <Stack width={d} height={d} overflow="visible">
+      {nodes}
+    </Stack>
+  );
+}
+
 /* —— 入口 —— */
 
 function PlanetComponent({ radius, power, id, time }: PlanetProps) {

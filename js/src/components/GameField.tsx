@@ -6,9 +6,32 @@ import {
   BLACK_HOLE_STAGE,
   BLACKHOLE_GRAVITY_RATIO,
 } from "../game/config";
-import Planet from "./Planet";
+import Planet, { StarAura } from "./Planet";
+import { Scene3D } from "@fuickjs-community/scene3d";
+import type { Scene3DBody } from "@fuickjs-community/scene3d";
 
 const MARGIN = 80;
+
+/** 冷行星（0-4）与恒星（5-8）用 3D 模型渲染；黑洞/宇宙（9+）继续走 2D。 */
+const MAX_3D_POWER = 8;
+const STAGE_MODELS = [
+  "models/planet_01.glb",
+  "models/planet_02.glb",
+  "models/planet_03.glb",
+  "models/planet_04.glb",
+  "models/planet_05.glb",
+  "models/planet_06.glb",
+  "models/planet_07.glb",
+  "models/planet_08.glb",
+  "models/planet_09.glb",
+];
+/** 轴倾角（弧度，绕 Z）。 */
+const BODY_TILT = 0.35;
+
+/** 自转速度（rad/s），按 id 打散让各天体不同步。 */
+function spinSpeed(id: number): number {
+  return 0.6 + (id % 7) * 0.08;
+}
 
 /** 6 位 hex 追加 alpha(0..1) 转 8 位。 */
 function alphaColor(hex: string, opacity: number): string {
@@ -42,11 +65,34 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
     oy *= s;
   }
 
+  const bodies3d: Scene3DBody[] = [];
   const renderBody = (sx: number, sy: number, body: Entity) => {
     const r = body.radius;
     const d = r * 2;
     // 冷行星(0-4)现在自转（球面光照渲染），发光天体（5-8）外观脉动，全部依赖 time。
     const t = state.time;
+
+    // 冷行星/恒星交给底部 Scene3D 3D 层（真实 GLB 模型）。
+    if (body.power <= MAX_3D_POWER) {
+      bodies3d.push({
+        id: body.id,
+        src: STAGE_MODELS[body.power],
+        x: sx,
+        y: sy,
+        size: d,
+        spin: t * spinSpeed(body.id),
+        tilt: BODY_TILT,
+      });
+      // 恒星在 3D 本体之上叠一层 2D 光环/芒（中心透明，不遮本体）。
+      if (body.power >= 5) {
+        return (
+          <Positioned left={sx - r} top={sy - r} width={d} height={d}>
+            <StarAura radius={r} power={body.power} id={body.id} time={t} />
+          </Positioned>
+        );
+      }
+      return null;
+    }
 
     // 实体全部程序化生成（渐变 / 裁剪绘制），不再使用图片素材。
     // 每颗天体用 RepaintBoundary 隔离重绘：相机/实体移动只改变图层位移（GPU 合成），
@@ -246,6 +292,8 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
     <Stack width={screenW} height={screenH}>
       {" "}
       {/* 背景（黑色宇宙 + 亮星）由页面层的 StarField 铺满全屏，这里只绘游戏实体 */}
+      {/* 3D 层：冷行星（power 0-4）真实 GLB 模型，铺在整个 2D 世界之下。 */}
+      <Scene3D width={screenW} height={screenH} bodies={bodies3d} />
       {/* 圆形宇宙边界：以出生点（原点）为圆心的世界圆环，靠近时可见。 */}
       <Positioned
         left={-ox - WORLD_RADIUS}
