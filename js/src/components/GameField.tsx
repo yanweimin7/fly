@@ -16,17 +16,25 @@ const MARGIN = 80;
 
 /** 冷行星（0-4）与恒星（5-8）用 3D 模型渲染；黑洞/宇宙（9+）继续走 2D。 */
 const MAX_3D_POWER = 8;
-const STAGE_MODELS = [
-  "models/planet_01.glb",
-  "models/planet_02.glb",
-  "models/planet_03.glb",
-  "models/planet_04.glb",
-  "models/planet_05.glb",
-  "models/planet_06.glb",
-  "models/planet_07.glb",
-  "models/planet_08.glb",
-  "models/planet_09.glb",
-];
+/** 每档 3 个贴图变体（tools/gen_planet_variants.py 生成），按实体 id 稳定取一个。 */
+const STAGE_MODELS: string[][] = [
+  ["planet_01", "planet_01_b", "planet_01_c"],
+  ["planet_02", "planet_02_b", "planet_02_c"],
+  ["planet_03", "planet_03_b", "planet_03_c"],
+  ["planet_04", "planet_04_b", "planet_04_c"],
+  ["planet_05", "planet_05_b", "planet_05_c"],
+  ["planet_06", "planet_06_b", "planet_06_c"],
+  ["planet_07", "planet_07_b", "planet_07_c"],
+  ["planet_08", "planet_08_b", "planet_08_c"],
+  ["planet_09", "planet_09_b", "planet_09_c"],
+].map((names) => names.map((n) => `models/${n}.glb`));
+
+/** 实体 → 变体：id 稳定映射，同屏相邻实体尽量取不同变体。 */
+function stageModel(power: number, id: number): string {
+  const variants = STAGE_MODELS[power];
+  if (!variants) return STAGE_MODELS[0][0];
+  return variants[((id * 2654435761) >>> 0) % variants.length];
+}
 /** 轴倾角（弧度，绕 Z）。 */
 const BODY_TILT = 0.35;
 
@@ -79,7 +87,7 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
       const glow = STAR_GLOW[body.power];
       bodies3d.push({
         id: body.id,
-        src: STAGE_MODELS[body.power],
+        src: stageModel(body.power, body.id),
         x: sx,
         y: sy,
         size: d,
