@@ -347,3 +347,16 @@ export const PLANET_GFX = {
     rough: 0.06,
   },
 } as const;
+
+/**
+ * 3D 场景光照（Scene3D / flutter_scene）。
+ * - lightDir 是「光传播方向」，世界坐标 y 向下同屏幕系；
+ *   默认从左上打向右下，球面明暗交界线在左下。
+ * - envIntensity 是内置 studio IBL 的强度：1.0 会把球照得又亮又平，
+ *   压低才显立体；lightIntensity 是平行光强度。
+ */
+export const SCENE3D_GFX = {
+  lightDir: [0.5, 0.6, -0.6] as [number, number, number],
+  lightIntensity: 3.0,
+  envIntensity: 0.35,
+} as const;

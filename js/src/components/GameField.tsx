@@ -5,6 +5,7 @@ import {
   WORLD_RADIUS,
   BLACK_HOLE_STAGE,
   BLACKHOLE_GRAVITY_RATIO,
+  SCENE3D_GFX,
 } from "../game/config";
 import Planet, { StarAura } from "./Planet";
 import { Scene3D } from "@fuickjs-community/scene3d";
@@ -293,7 +294,14 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
       {" "}
       {/* 背景（黑色宇宙 + 亮星）由页面层的 StarField 铺满全屏，这里只绘游戏实体 */}
       {/* 3D 层：冷行星（power 0-4）真实 GLB 模型，铺在整个 2D 世界之下。 */}
-      <Scene3D width={screenW} height={screenH} bodies={bodies3d} />
+      <Scene3D
+        width={screenW}
+        height={screenH}
+        bodies={bodies3d}
+        lightDir={SCENE3D_GFX.lightDir}
+        lightIntensity={SCENE3D_GFX.lightIntensity}
+        envIntensity={SCENE3D_GFX.envIntensity}
+      />
       {/* 圆形宇宙边界：以出生点（原点）为圆心的世界圆环，靠近时可见。 */}
       <Positioned
         left={-ox - WORLD_RADIUS}
