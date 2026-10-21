@@ -6,8 +6,9 @@ import {
   BLACK_HOLE_STAGE,
   BLACKHOLE_GRAVITY_RATIO,
   SCENE3D_GFX,
+  STAR_GLOW,
 } from "../game/config";
-import Planet, { StarAura } from "./Planet";
+import Planet from "./Planet";
 import { Scene3D } from "@fuickjs-community/scene3d";
 import type { Scene3DBody } from "@fuickjs-community/scene3d";
 
@@ -75,6 +76,7 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
 
     // 冷行星/恒星交给底部 Scene3D 3D 层（真实 GLB 模型）。
     if (body.power <= MAX_3D_POWER) {
+      const glow = STAR_GLOW[body.power];
       bodies3d.push({
         id: body.id,
         src: STAGE_MODELS[body.power],
@@ -83,15 +85,12 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
         size: d,
         spin: t * spinSpeed(body.id),
         tilt: BODY_TILT,
+        // 恒星光线也交给 3D 层：场景内广告牌光晕（随相机/场景一起渲染）。
+        glow: glow?.glow,
+        glowColor: glow?.color,
+        glowAlpha: glow?.alpha,
+        glowSpin: glow ? t * glow.spin : undefined,
       });
-      // 恒星在 3D 本体之上叠一层 2D 光环/芒（中心透明，不遮本体）。
-      if (body.power >= 5) {
-        return (
-          <Positioned left={sx - r} top={sy - r} width={d} height={d}>
-            <StarAura radius={r} power={body.power} id={body.id} time={t} />
-          </Positioned>
-        );
-      }
       return null;
     }
 

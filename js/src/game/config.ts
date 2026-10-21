@@ -355,6 +355,21 @@ export const PLANET_GFX = {
  * - envIntensity 是内置 studio IBL 的强度：1.0 会把球照得又亮又平，
  *   压低才显立体；lightIntensity 是平行光强度。
  */
+/**
+ * 恒星 3D 光线（Scene3D 内的广告牌光晕，含十字/斜向芒）。
+ * glow 为直径倍率（相对本体直径）；alpha 为整体不透明度；
+ * spin 为自转速度（弧度/秒，缓慢旋转让芒有生命感）。
+ */
+export const STAR_GLOW: Record<
+  number,
+  { glow: number; color: string; alpha: number; spin: number }
+> = {
+  5: { glow: 1.8, color: "#ffd27a", alpha: 0.6, spin: 0.12 },
+  6: { glow: 1.9, color: "#fff0c0", alpha: 0.62, spin: 0.1 },
+  7: { glow: 2.0, color: "#ff8a5c", alpha: 0.6, spin: 0.08 },
+  8: { glow: 2.1, color: "#d9ccff", alpha: 0.55, spin: 0.16 },
+};
+
 export const SCENE3D_GFX = {
   lightDir: [0.5, 0.6, -0.6] as [number, number, number],
   lightIntensity: 3.0,
