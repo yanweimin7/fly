@@ -518,6 +518,38 @@ function resolveCollision(state: GameState, e: Entity): void {
   }
 }
 
+/** 自由天体之间的吞噬：半径大者吞掉小者。
+ * 只让「小者湮灭」，吞噬者不增大——避免场上无上限滚雪球长出巨物。
+ * 不结算物质、不播放音效（背景中两个天体相撞属于常态，不喧宾夺主）。 */
+function resolveEntityCollisions(state: GameState): void {
+  const list = state.entities;
+  for (let i = 0; i < list.length; i++) {
+    const a = list[i];
+    if (a.removed || a.fallingIn) continue;
+    for (let j = i + 1; j < list.length; j++) {
+      const b = list[j];
+      if (b.removed || b.fallingIn) continue;
+      const rr = a.radius + b.radius;
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      if (dx * dx + dy * dy >= rr * rr) continue;
+      // 大者胜出；几乎等大时按 id 稳定选一方，避免两帧间互相抹除。
+      const aWins =
+        a.radius > b.radius || (a.radius === b.radius && a.id < b.id);
+      const small = aWins ? b : a;
+      addExplosion(
+        state,
+        small.x,
+        small.y,
+        small.radius * 0.9,
+        STAGES[small.power].color ?? "#9e9e9e",
+      );
+      small.removed = true;
+      if (small === a) break;
+    }
+  }
+}
+
 /** 捕获：将捕获半径内最近的行星变为环绕卫星。仅 L4+ 可用。 */
 export function tryCapture(state: GameState): void {
   if (!STAGES[state.stageIndex].canCapture) return;
@@ -723,6 +755,8 @@ export function step(
     if (e.removed || e.fallingIn) continue;
     resolveCollision(state, e);
   }
+  // 自由天体之间同样适用「大的吞小的」。
+  resolveEntityCollisions(state);
 
   // 移除被吞噬 / 撞击消耗的天体。
   state.entities = state.entities.filter((e) => !e.removed);
