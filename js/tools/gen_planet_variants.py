@@ -28,8 +28,8 @@ from PIL import Image, ImageDraw, ImageFilter
 W = H = 512
 
 # 各阶段的基础贴图风格（与 STAGES 对应）。
-GAS_STAGES = {"planet_05"}
-ROCK_STAGES = {"planet_01", "planet_02", "planet_03", "planet_04"}
+GAS_STAGES = set()
+ROCK_STAGES = {"planet_01", "planet_02", "planet_03"}
 
 
 def read_glb(path: Path):
