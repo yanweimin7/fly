@@ -28,6 +28,8 @@ export interface Entity {
   maxHp: number;
   /** 上次被土星环命中的时间（秒，用于环伤害间隔）。 */
   ringHitAt?: number;
+  /** 上次作为卫星撞击结算的时间（秒，用于卫星伤害间隔）。 */
+  hitAt?: number;
   /** 是否为被捕获的环绕卫星。 */
   isSatellite: boolean;
   /** 环绕轨道角（卫星专用）。 */

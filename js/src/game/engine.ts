@@ -33,6 +33,9 @@ import {
   MAX_HEALTH,
   BODY_HP,
   RING,
+  SATELLITE_DAMAGE,
+  MAX_CAPTURE_POWER,
+  SATELLITE_HIT_COOLDOWN,
   HIT_FLASH_FRAMES,
   EFFECT_LIFE,
   BIG_PER_MINUTE,
@@ -596,6 +599,50 @@ function damageBody(state: GameState, e: Entity, amount: number): void {
   e.removed = true;
 }
 
+/** 环绕卫星撞击自由天体：按卫星等级造成伤害（SATELLITE_DAMAGE）；
+ * 目标比卫星更大时卫星同归于尽，伤害照常结算。 */
+function resolveSatelliteCollisions(state: GameState): void {
+  if (state.satellites.length === 0) return;
+  const p = state.player;
+  let died = false;
+  for (const s of state.satellites) {
+    if (s.removed) continue;
+    if (
+      state.time - (s.hitAt ?? -SATELLITE_HIT_COOLDOWN) <
+      SATELLITE_HIT_COOLDOWN
+    ) {
+      continue;
+    }
+    // 卫星世界坐标由玩家位置 + 轨道参数推出（引擎不写回 s.x/s.y）。
+    const a = s.angle ?? 0;
+    const orb = s.orbitRadius ?? 0;
+    const sx = p.x + Math.cos(a) * orb;
+    const sy = p.y + Math.sin(a) * orb;
+    for (const e of state.entities) {
+      if (e.removed || e.fallingIn) continue;
+      if (dist(sx, sy, e.x, e.y) >= s.radius + e.radius) continue;
+      s.hitAt = state.time;
+      addExplosion(
+        state,
+        e.x,
+        e.y,
+        Math.max(8, e.radius * 0.6),
+        STAGES[s.power].color ?? "#9e9e9e",
+      );
+      const dmg = SATELLITE_DAMAGE[s.power] ?? 0;
+      if (dmg > 0) damageBody(state, e, dmg);
+      // 撞上比自己更大的天体：卫星同归于尽（伤害照常结算）。
+      if (e.radius > s.radius) {
+        shatter(state, sx, sy, s.radius, STAGES[s.power].color ?? "#9e9e9e");
+        s.removed = true;
+        died = true;
+      }
+      break;
+    }
+  }
+  if (died) state.satellites = state.satellites.filter((s) => !s.removed);
+}
+
 /** 自由天体之间的吞噬：半径大者吞掉小者。
  * 只让「小者湮灭」，吞噬者不增大——避免场上无上限滚雪球长出巨物。
  * 不结算物质、不播放音效（背景中两个天体相撞属于常态，不喧宾夺主）。 */
@@ -636,6 +683,7 @@ export function tryCapture(state: GameState): void {
   let bestD = Infinity;
   for (let i = 0; i < state.entities.length; i++) {
     const e = state.entities[i];
+    if (e.power > MAX_CAPTURE_POWER) continue;
     const d = dist(p.x, p.y, e.x, e.y);
     if (d <= p.radius + e.radius + CAPTURE_RANGE && d < bestD) {
       bestD = d;
@@ -835,6 +883,8 @@ export function step(
   }
   // 自由天体之间同样适用「大的吞小的」。
   resolveEntityCollisions(state);
+  // 环绕卫星撞击：伤害目标；撞上更大的天体时卫星阵亡。
+  resolveSatelliteCollisions(state);
   // 土星环：环带内的其它天体持续掉血。
   ringDamageTick(state);
 
