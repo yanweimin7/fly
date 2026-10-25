@@ -8,6 +8,7 @@
 
 import type { Entity, GameState, InputState } from "../store/game";
 import { sfx } from "./sound";
+import { hasRing } from "./models";
 import {
   STAGES,
   FINAL_MATTER,
@@ -30,6 +31,8 @@ import {
   TARGET_ENTITIES,
   DAMAGE,
   MAX_HEALTH,
+  BODY_HP,
+  RING,
   HIT_FLASH_FRAMES,
   EFFECT_LIFE,
   BIG_PER_MINUTE,
@@ -195,6 +198,8 @@ export function createGame(
       radius: STAGES[0].r,
       power: 0,
       matterValue: 0,
+      hp: MAX_HEALTH,
+      maxHp: MAX_HEALTH,
       isSatellite: false,
     },
     entities: [],
@@ -309,6 +314,8 @@ export function spawnEntity(
     radius,
     power,
     matterValue,
+    hp: BODY_HP[power] ?? 3000,
+    maxHp: BODY_HP[power] ?? 3000,
     isSatellite: false,
   });
   // 圆形宇宙：生成点不得越过世界圆环边界（贴近边缘时环带被截断）；
@@ -402,6 +409,8 @@ export function forceSpawnNext(state: GameState): void {
     radius,
     power,
     matterValue,
+    hp: BODY_HP[power] ?? 3000,
+    maxHp: BODY_HP[power] ?? 3000,
     isSatellite: false,
   });
   // 圆形宇宙：生成点不得越过世界圆环边界；黑洞还要复查死亡线间距。
@@ -493,9 +502,18 @@ function resolveCollision(state: GameState, e: Entity): void {
     return;
   }
 
-  // 同类：真实半径比玩家小 → 吞噬；与玩家相当/更大 → 撞击掉血且敌方崩解。
+  // 同类：真实半径比玩家小 → 吞噬。
   if (e.radius < p.radius * 0.95) {
     swallow(state, e);
+    return;
+  }
+  // 同类且比玩家更大：正面撞上去直接死（卫星挡不住，大者存活）。
+  if (e.radius > p.radius) {
+    shatter(state, p.x, p.y, p.radius, STAGES[pr].color ?? "#9e9e9e");
+    state.health = 0;
+    state.hitFlash = HIT_FLASH_FRAMES;
+    state.status = "gameover";
+    sfx("gameover", true);
     return;
   }
   const canShield = state.stageIndex >= 3 && state.satellites.length > 0;
@@ -516,6 +534,66 @@ function resolveCollision(state: GameState, e: Entity): void {
     // 玩家被撞毁，同样播放一次爆炸（效果一致）。
     shatter(state, p.x, p.y, p.radius, STAGES[pr].color ?? "#9e9e9e");
   }
+}
+
+/** 土星环伤害：环带（斜视椭圆）内的其它天体每 RING.hitCooldown 秒受一次伤害。
+ * 对环的持有者自身无效；玩家处于气态行星阶段（土星）时，自己的环同样伤害靠近的自由天体。 */
+function ringDamageTick(state: GameState): void {
+  const p = state.player;
+  const owners: Entity[] = state.entities.filter(
+    (e) => !e.removed && !e.fallingIn && hasRing(e.power, e.id),
+  );
+  if (hasRing(p.power, p.id)) owners.push(p);
+  for (const owner of owners) {
+    const aIn = RING.inner * owner.radius;
+    const aOut = RING.outer * owner.radius;
+    for (const e of state.entities) {
+      if (e === owner || e.removed || e.fallingIn) continue;
+      if (state.time - (e.ringHitAt ?? -RING.hitCooldown) < RING.hitCooldown) {
+        continue;
+      }
+      if (!inRing(e, owner, aIn, aOut)) continue;
+      e.ringHitAt = state.time;
+      damageBody(state, e, RING.damage);
+    }
+    if (owner === p) continue;
+    if (state.time - (p.ringHitAt ?? -RING.hitCooldown) < RING.hitCooldown) {
+      continue;
+    }
+    if (!inRing(p, owner, aIn, aOut)) continue;
+    p.ringHitAt = state.time;
+    state.health -= RING.damage;
+    state.hitFlash = HIT_FLASH_FRAMES;
+    sfx("damage");
+    if (state.health <= 0) {
+      state.health = 0;
+      shatter(
+        state,
+        p.x,
+        p.y,
+        p.radius,
+        STAGES[state.stageIndex].color ?? "#9e9e9e",
+      );
+      state.status = "gameover";
+      sfx("gameover", true);
+    }
+  }
+}
+
+/** 是否落在土星环带内：把纵向按 squash 压扁后按圆环判定，并计入天体自身半径。 */
+function inRing(e: Entity, owner: Entity, aIn: number, aOut: number): boolean {
+  const dx = e.x - owner.x;
+  const dy = (e.y - owner.y) / RING.squash;
+  const rho = Math.hypot(dx, dy);
+  return rho + e.radius >= aIn && rho - e.radius <= aOut;
+}
+
+/** 扣天体血量；归零时爆炸消失（不结算物质、不产生碎屑）。 */
+function damageBody(state: GameState, e: Entity, amount: number): void {
+  e.hp = Math.max(0, e.hp - amount);
+  if (e.hp > 0) return;
+  shatter(state, e.x, e.y, e.radius, STAGES[e.power].color ?? "#9e9e9e");
+  e.removed = true;
 }
 
 /** 自由天体之间的吞噬：半径大者吞掉小者。
@@ -757,6 +835,8 @@ export function step(
   }
   // 自由天体之间同样适用「大的吞小的」。
   resolveEntityCollisions(state);
+  // 土星环：环带内的其它天体持续掉血。
+  ringDamageTick(state);
 
   // 移除被吞噬 / 撞击消耗的天体。
   state.entities = state.entities.filter((e) => !e.removed);

@@ -70,6 +70,31 @@ export const TARGET_ENTITIES = 12;
 /** 单次受击（无卫星抵挡时）扣血。 */
 export const DAMAGE = 25;
 export const MAX_HEALTH = 100;
+
+/** 各阶段天体的血量上限（0 基 power）。玩家不走这张表（仍是 MAX_HEALTH）。 */
+export const BODY_HP: Record<number, number> = {
+  0: 50, // 陨石
+  1: 100, // 小行星
+  2: 200, // 矮星
+  3: 500, // 岩石行星
+  4: 1000, // 气态行星
+  5: 1500, // 矮恒星
+  6: 1800, // 恒星
+  7: 2300, // 超巨星
+  8: 20, // 中子星
+  9: 3000, // 黑洞
+};
+
+/** 土星环：几何（×行星半径，与 gen_solar_planets.py 的环网格一致）与伤害。 */
+export const RING = {
+  inner: 1.25,
+  outer: 2.3,
+  /** 屏幕投影的纵向压扁系数（环面斜视）。 */
+  squash: 0.25,
+  damage: 50,
+  /** 同一天体两次环伤害的最小间隔（秒）。 */
+  hitCooldown: 0.5,
+};
 /** 受击闪烁持续帧数。 */
 export const HIT_FLASH_FRAMES = 12;
 

@@ -9,6 +9,7 @@ import {
   STAR_GLOW,
 } from "../game/config";
 import Planet from "./Planet";
+import { stageModel } from "../game/models";
 import { Scene3D } from "@fuickjs-community/scene3d";
 import type { Scene3DBody } from "@fuickjs-community/scene3d";
 
@@ -16,25 +17,10 @@ const MARGIN = 80;
 
 /** 冷行星（0-4）与恒星（5-8）用 3D 模型渲染；黑洞/宇宙（9+）继续走 2D。 */
 const MAX_3D_POWER = 8;
-/** 每档 3 个贴图变体（tools/gen_planet_variants.py 生成），按实体 id 稳定取一个。 */
-const STAGE_MODELS: string[][] = [
-  ["planet_01", "planet_01_b", "planet_01_c"],
-  ["planet_02", "planet_02_b", "planet_02_c"],
-  ["planet_03", "planet_03_b", "planet_03_c"],
-  ["earth", "venus", "mars"],
-  ["saturn", "jupiter", "uranus", "neptune"],
-  ["planet_06", "planet_06_b", "planet_06_c"],
-  ["planet_07", "planet_07_b", "planet_07_c"],
-  ["planet_08", "planet_08_b", "planet_08_c"],
-  ["planet_09", "planet_09_b", "planet_09_c"],
-].map((names) => names.map((n) => `models/${n}.glb`));
+/** 血条高度 / 与天体的间距（像素）。 */
+const HP_BAR_H = 3;
+const HP_BAR_GAP = 5;
 
-/** 实体 → 变体：id 稳定映射，同屏相邻实体尽量取不同变体。 */
-function stageModel(power: number, id: number): string {
-  const variants = STAGE_MODELS[power];
-  if (!variants) return STAGE_MODELS[0][0];
-  return variants[((id * 2654435761) >>> 0) % variants.length];
-}
 /** 轴倾角（弧度，绕 Z）。 */
 const BODY_TILT = 0.35;
 
@@ -130,6 +116,58 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
       continue;
     (e.fallingIn ? falling : bodies).push(
       <React.Fragment key={`e${e.id}`}>{renderBody(sx, sy, e)}</React.Fragment>,
+    );
+  }
+
+  // 天体血条：与自身体型同宽，画在天体正上方（红条 + 暗底），黑洞/恒星等同样显示。
+  const bars: React.ReactNode[] = [];
+  for (const e of state.entities) {
+    if (e.fallingIn) continue;
+    const sx = e.x - ox;
+    const sy = e.y - oy;
+    if (
+      sx < -MARGIN ||
+      sx > screenW + MARGIN ||
+      sy < -MARGIN ||
+      sy > screenH + MARGIN
+    )
+      continue;
+    const w = Math.max(6, e.radius * 2);
+    const top = sy - e.radius - HP_BAR_GAP - HP_BAR_H;
+    const ratio = e.maxHp > 0 ? Math.max(0, Math.min(1, e.hp / e.maxHp)) : 0;
+    bars.push(
+      <Positioned
+        key={`hb${e.id}`}
+        left={sx - w / 2}
+        top={top}
+        width={w}
+        height={HP_BAR_H}
+      >
+        <Container
+          width={w}
+          height={HP_BAR_H}
+          decoration={{
+            borderRadius: HP_BAR_H / 2,
+            color: alphaColor("#000000", 0.45),
+          }}
+        />
+      </Positioned>,
+      <Positioned
+        key={`hf${e.id}`}
+        left={sx - w / 2}
+        top={top}
+        width={Math.max(1, w * ratio)}
+        height={HP_BAR_H}
+      >
+        <Container
+          width={Math.max(1, w * ratio)}
+          height={HP_BAR_H}
+          decoration={{
+            borderRadius: HP_BAR_H / 2,
+            color: "#ff3b30",
+          }}
+        />
+      </Positioned>,
     );
   }
 
@@ -337,6 +375,7 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
       {state.swallow ? null : playerNode}
       {falling}
       {state.swallow ? playerNode : null}
+      {bars}
       {fxNodes}
     </Stack>
   );

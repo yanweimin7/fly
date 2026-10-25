@@ -23,6 +23,11 @@ export interface Entity {
   power: number;
   /** 被吞噬时提供的物质。 */
   matterValue: number;
+  /** 当前血量 / 上限（天体血条；玩家用 GameState.health，这两项无实际意义）。 */
+  hp: number;
+  maxHp: number;
+  /** 上次被土星环命中的时间（秒，用于环伤害间隔）。 */
+  ringHitAt?: number;
   /** 是否为被捕获的环绕卫星。 */
   isSatellite: boolean;
   /** 环绕轨道角（卫星专用）。 */
