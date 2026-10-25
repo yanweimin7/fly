@@ -85,7 +85,7 @@ export const BODY_HP: Record<number, number> = {
   9: 3000, // 黑洞
 };
 
-/** 环绕卫星撞击自由天体的伤害（按卫星自身等级；超巨星及以上无法捕获）。 */
+/** 环绕卫星撞击自由天体的伤害（占目标最大生命的百分比；超巨星及以上无法捕获）。 */
 export const SATELLITE_DAMAGE: Record<number, number> = {
   0: 2, // 陨石
   1: 10, // 小行星

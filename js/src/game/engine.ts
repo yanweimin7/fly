@@ -622,14 +622,23 @@ function resolveSatelliteCollisions(state: GameState): void {
       if (e.removed || e.fallingIn) continue;
       if (dist(sx, sy, e.x, e.y) >= s.radius + e.radius) continue;
       s.hitAt = state.time;
+      // 撞击点取目标表面朝向卫星的一侧（大天体中心点会被盘面遮住，看不到特效）。
+      const dx = sx - e.x;
+      const dy = sy - e.y;
+      const dd = Math.max(1, Math.hypot(dx, dy));
+      const cx = e.x + (dx / dd) * e.radius;
+      const cy = e.y + (dy / dd) * e.radius;
       addExplosion(
         state,
-        e.x,
-        e.y,
-        Math.max(8, e.radius * 0.6),
+        cx,
+        cy,
+        Math.max(10, s.radius * 0.6),
         STAGES[s.power].color ?? "#9e9e9e",
       );
-      const dmg = SATELLITE_DAMAGE[s.power] ?? 0;
+      const pct = SATELLITE_DAMAGE[s.power] ?? 0;
+      const dmg = Math.max(1, Math.round((e.maxHp * pct) / 100));
+      addDamageText(state, e.x, e.y - e.radius - 14, `-${pct}%`);
+      sfx("explode");
       if (dmg > 0) damageBody(state, e, dmg);
       // 撞上比自己更大的天体：卫星同归于尽（伤害照常结算）。
       if (e.radius > s.radius) {
@@ -641,6 +650,29 @@ function resolveSatelliteCollisions(state: GameState): void {
     }
   }
   if (died) state.satellites = state.satellites.filter((s) => !s.removed);
+}
+
+/** 伤害数字：在目标上方浮出并淡出（大天体血条太粗，小额掉血肉眼不可见）。 */
+function addDamageText(
+  state: GameState,
+  x: number,
+  y: number,
+  text: string,
+): void {
+  state.effects.push({
+    id: state.nextEntityId++,
+    x,
+    y,
+    age: 0,
+    life: 0.85,
+    maxR: 0,
+    color: "#ff5b4d",
+    type: "text",
+    text,
+  });
+  if (state.effects.length > 32) {
+    state.effects.splice(0, state.effects.length - 32);
+  }
 }
 
 /** 自由天体之间的吞噬：半径大者吞掉小者。

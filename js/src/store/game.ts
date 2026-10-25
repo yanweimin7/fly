@@ -45,7 +45,7 @@ export interface Entity {
 export type GameStatus = "playing" | "gameover" | "win";
 
 /** 特效类型：ring=扩散圆环（撞击爆炸）；suck=黑洞吸入（颗粒螺旋收束变小、淡入洞内）。 */
-export type EffectType = "ring" | "suck";
+export type EffectType = "ring" | "suck" | "text";
 
 /** 特效（GameField 渲染）。ring 为随时间扩散、淡出的圆环；suck 为吸入颗粒。 */
 export interface Effect {
@@ -64,6 +64,8 @@ export interface Effect {
   type?: EffectType;
   /** suck 专用：颗粒最终收束进去的洞心半径（像素），缺省时回退到玩家半径。 */
   sinkR?: number;
+  /** text 专用：浮出的伤害文本（如 "-31%"）。 */
+  text?: string;
 }
 
 /** 玩家被场上黑洞吸入的过程：记录那颗黑洞（跟随其移动），直到坠入洞心判定死亡。 */

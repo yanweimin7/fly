@@ -1,5 +1,5 @@
 import React from "react";
-import { Stack, Positioned, Container, RepaintBoundary } from "fuickjs";
+import { Stack, Positioned, Container, RepaintBoundary, Text } from "fuickjs";
 import type { Entity, GameState } from "../store/game";
 import {
   WORLD_RADIUS,
@@ -273,6 +273,32 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
           </Positioned>,
         );
       }
+      continue;
+    }
+    if (fx.type === "text") {
+      // 伤害数字：上浮 + 淡出（卫星撞击的掉血在粗血条上看不出来，必须给文字反馈）。
+      const t = Math.min(1, fx.age / fx.life);
+      const tx = fx.x - ox;
+      const ty = fx.y - oy - 34 * t;
+      const oa = 1 - t * t;
+      fxNodes.push(
+        <Positioned
+          key={`fxt${fx.id}`}
+          left={tx - 80}
+          top={ty - 12}
+          width={160}
+          height={24}
+        >
+          <Container width={160} height={24} alignment="center">
+            <Text
+              text={fx.text ?? ""}
+              color={alphaColor(fx.color, oa)}
+              fontSize={15}
+              fontWeight="bold"
+            />
+          </Container>
+        </Positioned>,
+      );
       continue;
     }
     const x = fx.x - ox;
