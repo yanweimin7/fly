@@ -4,12 +4,15 @@ import { GestureDetector, Container, Text } from "fuickjs";
 interface CaptureButtonProps {
   enabled: boolean;
   onCapture: () => void;
+  /** 按钮直径（像素，默认 84）。 */
+  size?: number;
 }
 
-/** 右下角捕获按钮：仅 L4+ 且存在可捕获行星时可用。 */
+/** 捕获按钮：仅 L4+ 且存在可捕获行星时可用。 */
 export default function CaptureButton({
   enabled,
   onCapture,
+  size = 84,
 }: CaptureButtonProps) {
   return (
     <GestureDetector
@@ -18,18 +21,18 @@ export default function CaptureButton({
       }}
     >
       <Container
-        width={84}
-        height={84}
+        width={size}
+        height={size}
         alignment="center"
         decoration={{
           color: enabled ? "rgba(255,193,7,0.85)" : "rgba(120,120,120,0.35)",
-          borderRadius: 42,
+          borderRadius: size / 2,
         }}
       >
         <Text
-          text={enabled ? "捕获" : "捕获"}
+          text="捕获"
           color={enabled ? "#000000" : "#eeeeee"}
-          fontSize={18}
+          fontSize={Math.round(size * 0.21)}
           fontWeight="bold"
         />
       </Container>

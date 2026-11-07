@@ -16,6 +16,10 @@ interface StarFieldProps {
   /** 玩家世界坐标（相机中心）：星空按 0.8 视差比随玩家缓速平移滚动。 */
   playerX?: number;
   playerY?: number;
+  /** 星星数量（默认铺满全屏的密度）。 */
+  starCount?: number;
+  /** 是否让星星闪烁。 */
+  twinkle?: boolean;
 }
 
 const NUM_STARS = 70;
@@ -46,9 +50,9 @@ interface Star {
   color: string;
 }
 
-function generateStars(w: number, h: number): Star[] {
+function generateStars(w: number, h: number, count: number): Star[] {
   const stars: Star[] = [];
-  for (let i = 0; i < NUM_STARS; i++) {
+  for (let i = 0; i < count; i++) {
     const r = seededRandom(i * 13);
     const kind: StarKind = r < 0.08 ? "cross" : r < 0.5 ? "glow" : "pin";
     const cr = seededRandom(i * 17);
@@ -90,7 +94,7 @@ function alphaColor(hex6: string, opacity: number): string {
 }
 
 /** 不规则闪烁亮度（0..1）：多层正弦叠加，模拟真实星光的明暗起伏。 */
-function twinkle(t: number, s: Star): number {
+function twinkleAt(t: number, s: Star): number {
   const v =
     0.55 * Math.sin(t * s.a * 2 + s.phase) +
     0.3 * Math.sin(t * s.b * 2 + s.phase * 1.7 + 1.2) +
@@ -213,25 +217,28 @@ export default function StarField({
   height,
   playerX,
   playerY,
+  starCount = NUM_STARS,
+  twinkle = true,
 }: StarFieldProps) {
   const imagePath = resolveBundleAssetPath("images/space_bg.png") as string;
 
   const dimsRef = useRef<string>("");
   const starsRef = useRef<Star[]>([]);
-  const dims = `${width}x${height}`;
+  const dims = `${width}x${height}x${starCount}`;
   if (starsRef.current.length === 0 || dimsRef.current !== dims) {
     dimsRef.current = dims;
-    starsRef.current = generateStars(width, height);
+    starsRef.current = generateStars(width, height, starCount);
   }
 
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
+    if (!twinkle) return;
     const id = setInterval(() => setTick((t) => t + 1), 80);
     return () => clearInterval(id);
-  }, []);
+  }, [twinkle]);
 
-  const t = tick * 0.12; // 近似秒，驱动闪烁频率
+  const t = twinkle ? tick * 0.12 : 0; // 近似秒，驱动闪烁频率
 
   // 相机偏移（屏幕中心对应玩家位置），星空以 0.8 视差比反方向平移、平铺滚动。
   const ox = playerX !== undefined ? playerX - width / 2 : 0;
@@ -246,7 +253,7 @@ export default function StarField({
         <Image src={imagePath} width={width} height={height} fit="cover" />
       </RepaintBoundary>
       {starsRef.current.map((star, i) => {
-        const opacity = twinkle(t, star);
+        const opacity = twinkleAt(t, star);
         const key = `star-${i}`;
         const sx = rollX(star.x);
         const sy = rollY(star.y);

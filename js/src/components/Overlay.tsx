@@ -10,7 +10,8 @@ interface OverlayProps {
   screenH: number;
 }
 
-/** 游戏结束 / 「另一个宇宙」结局界面。背景黑幕淡入，让撞击爆炸先露出来。 */
+/** 游戏结束 / 「另一个宇宙」结局界面。背景黑幕淡入，让撞击爆炸先露出来。
+ * 败局时提示等级与物质将保留（继续 = revive）。 */
 export default function Overlay({
   win,
   stageName,

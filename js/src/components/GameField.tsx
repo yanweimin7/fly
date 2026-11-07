@@ -9,6 +9,7 @@ import {
   STAR_GLOW,
 } from "../game/config";
 import Planet from "./Planet";
+import { computeCamera } from "../game/camera";
 import { stageModel } from "../game/models";
 import { Scene3D } from "@fuickjs-community/scene3d";
 import type { Scene3DBody } from "@fuickjs-community/scene3d";
@@ -47,19 +48,11 @@ interface GameFieldProps {
 /** 星空场地：世界为圆形宇宙，相机跟随玩家但不会越过世界圆环——靠近边缘时
  * 玩家偏离屏幕中心、圆环边界可见（不锁定在正中）。 */
 export default function GameField({ state, screenW, screenH }: GameFieldProps) {
-  const p = state.player;
+  const viewer = state.players[0];
+  const p = viewer.entity;
   // 相机偏移：屏幕中心对应玩家世界坐标，其余实体/特效相对玩家平移。
   // 相机被夹在世界圆环内（保留半个屏幕对角线的余量，保证圆环始终在视野内）。
-  let ox = p.x - screenW / 2;
-  let oy = p.y - screenH / 2;
-  const camR = Math.hypot(screenW, screenH) / 2;
-  const maxCX = Math.max(1, WORLD_RADIUS - camR);
-  const cd = Math.hypot(ox, oy);
-  if (cd > maxCX) {
-    const s = maxCX / cd;
-    ox *= s;
-    oy *= s;
-  }
+  const { ox, oy } = computeCamera(p.x, p.y, p.radius, screenW, screenH);
 
   const bodies3d: Scene3DBody[] = [];
   const renderBody = (sx: number, sy: number, body: Entity) => {
@@ -172,13 +165,17 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
   }
 
   const sats: React.ReactNode[] = [];
-  for (const s of state.satellites) {
-    const a = s.angle ?? 0;
-    const sx = p.x + Math.cos(a) * (s.orbitRadius ?? 0) - ox;
-    const sy = p.y + Math.sin(a) * (s.orbitRadius ?? 0) - oy;
-    sats.push(
-      <React.Fragment key={`s${s.id}`}>{renderBody(sx, sy, s)}</React.Fragment>,
-    );
+  for (const pl of state.players) {
+    for (const s of pl.satellites) {
+      const a = s.angle ?? 0;
+      const sx = pl.entity.x + Math.cos(a) * (s.orbitRadius ?? 0) - ox;
+      const sy = pl.entity.y + Math.sin(a) * (s.orbitRadius ?? 0) - oy;
+      sats.push(
+        <React.Fragment key={`s${pl.entity.id}-${s.id}`}>
+          {renderBody(sx, sy, s)}
+        </React.Fragment>,
+      );
+    }
   }
 
   // 黑洞引力范围圈：淡紫径向渐变 + 细边，标出吸力边界。
@@ -217,9 +214,18 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
     );
   };
   const gravityRings: React.ReactNode[] = [];
-  if (state.stageIndex >= BLACK_HOLE_STAGE) {
-    gravityRings.push(gravityRing(p.x - ox, p.y - oy, p.radius, "gh-self"));
-  }
+  state.players.forEach((pl, i) => {
+    if (pl.stageIndex >= BLACK_HOLE_STAGE) {
+      gravityRings.push(
+        gravityRing(
+          pl.entity.x - ox,
+          pl.entity.y - oy,
+          pl.entity.radius,
+          `gh-p${i}`,
+        ),
+      );
+    }
+  });
   for (const e of state.entities) {
     if (e.removed || e.power < BLACK_HOLE_STAGE) continue;
     if (e.x - ox < -MARGIN || e.x - ox > screenW + MARGIN) continue;
@@ -229,8 +235,6 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
 
   // 撞击爆炸特效：随时间扩散、淡出的圆环。
   const fxNodes: React.ReactNode[] = [];
-  const px = p.x - ox;
-  const py = p.y - oy;
   for (const fx of state.effects) {
     if (fx.type === "suck") {
       // 黑洞吸入特效：颗粒从远处螺旋收束飞入洞心，随推进逐步变小并淡入洞内。
@@ -356,9 +360,31 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
     }
   }
 
-  const playerNode = (
-    <React.Fragment key="player">{renderBody(px, py, p)}</React.Fragment>
-  );
+  // 玩家（单人只有一个，players 数组仍保留通用结构）。
+  const playerNodes: React.ReactNode[] = [];
+  const playerNodesTop: React.ReactNode[] = [];
+  state.players.forEach((pl, i) => {
+    const sx = pl.entity.x - ox;
+    const sy = pl.entity.y - oy;
+    if (
+      sx < -MARGIN - pl.entity.radius ||
+      sx > screenW + MARGIN + pl.entity.radius ||
+      sy < -MARGIN - pl.entity.radius ||
+      sy > screenH + MARGIN + pl.entity.radius
+    ) {
+      return;
+    }
+    const node = (
+      <React.Fragment key={`p${i}`}>
+        {renderBody(sx, sy, pl.entity)}
+      </React.Fragment>
+    );
+    if (i === 0 && viewer.swallow) {
+      playerNodesTop.push(node);
+    } else {
+      playerNodes.push(node);
+    }
+  });
 
   return (
     <Stack width={screenW} height={screenH}>
@@ -397,10 +423,10 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
       {gravityRings}
       {bodies}
       {sats}
-      {/* 被吸入时把玩家挪到 falling 层之后画：坠向洞心缩小消失的过程不被黑洞黑盘盖住。 */}
-      {state.swallow ? null : playerNode}
+      {playerNodes}
       {falling}
-      {state.swallow ? playerNode : null}
+      {/* 被吸入时把玩家挪到 falling 层之后画：坠向洞心缩小消失的过程不被黑洞黑盘盖住。 */}
+      {playerNodesTop}
       {bars}
       {fxNodes}
     </Stack>

@@ -16,6 +16,7 @@ import {
   TICK_RATE,
   DT,
   CAPTURE_RANGE,
+  MAX_CAPTURE_POWER,
   setScreenSize,
 } from "../game/config";
 import GameField from "../components/GameField";
@@ -67,11 +68,12 @@ export default function GamePage() {
         : 640;
 
   const storeRef = useRef<GameStore | null>(null);
-  if (!storeRef.current) storeRef.current = new GameStore(W, H);
+  if (!storeRef.current) storeRef.current = new GameStore(W, H, "solo");
   const store = storeRef.current;
 
   // 开始菜单闸门：未点「开始游戏」前不推进游戏（时间/生成/碰撞全部冻结）。
   const [started, setStarted] = useState(false);
+  // 摇杆输入（单人只有一个玩家）。
   const inputRef = useRef<InputState>({ dx: 0, dy: 0, intensity: 0 });
   const [, setTick] = useState(0);
 
@@ -99,22 +101,26 @@ export default function GamePage() {
     const id = setInterval(() => {
       // 未开始：冻结玩法（星空仍在渲染，只是不推进游戏时间）。
       if (!started) return;
-      step(store.getState(), inputRef.current, DT);
+      const st = store.getState();
+      step(st, [inputRef.current], DT);
       store.notify();
     }, 1000 / TICK_RATE);
     return () => clearInterval(id);
   }, [store, started]);
 
   const state = store.getState();
-  const canCapture = STAGES[state.stageIndex].canCapture;
-  const hasCapturable =
-    canCapture &&
-    state.entities.some(
+  const canCapture = (pi: number): boolean => {
+    const pl = state.players[pi];
+    if (!pl || !STAGES[pl.stageIndex].canCapture) return false;
+    return state.entities.some(
       (e) =>
-        Math.hypot(e.x - state.player.x, e.y - state.player.y) <=
-        state.player.radius + CAPTURE_RANGE,
+        e.power <= MAX_CAPTURE_POWER &&
+        Math.hypot(e.x - pl.entity.x, e.y - pl.entity.y) <=
+          pl.entity.radius + e.radius + CAPTURE_RANGE,
     );
+  };
   const stageName = `L${STAGES[state.stageIndex].id} ${STAGES[state.stageIndex].name}`;
+  const won = state.status === "win";
 
   return (
     <Scaffold backgroundColor="#000000">
@@ -124,6 +130,8 @@ export default function GamePage() {
           playerY={state.player.y}
           width={W}
           height={H}
+          starCount={70}
+          twinkle
         />
         <Stack fit="expand">
           {/* 未开始：只渲染星空 + 开始菜单，游戏层（天体/HUD/摇杆等）完全不挂载。 */}
@@ -133,7 +141,7 @@ export default function GamePage() {
               <TransformEffect state={state} screenW={W} screenH={H} />
 
               {/* 临时调试读数：末 6 位为 bundle sha256 指纹（__FUICK_BUNDLE__ 由 native 注入）。 */}
-              <Positioned left={W - 150} top={90} width={145}>
+              <Positioned left={10} top={185} width={180}>
                 <Text
                   text={`P(${Math.round(state.player.x)},${Math.round(
                     state.player.y,
@@ -155,6 +163,7 @@ export default function GamePage() {
                 />
               </Positioned>
 
+              {/* 调试用：一键升级按钮。 */}
               <Positioned left={10} top={120}>
                 <GestureDetector
                   onTap={() => {
@@ -189,10 +198,10 @@ export default function GamePage() {
 
               <Positioned right={22} bottom={40}>
                 <CaptureButton
-                  enabled={hasCapturable}
+                  enabled={canCapture(0)}
                   onCapture={() => {
                     sfx("tap");
-                    tryCapture(store.getState());
+                    tryCapture(store.getState(), 0);
                     store.notify();
                   }}
                 />
@@ -207,18 +216,19 @@ export default function GamePage() {
               {state.status !== "playing" && (
                 <Positioned left={0} top={0} right={0} bottom={0}>
                   <Overlay
-                    win={state.status === "win"}
+                    win={won}
                     stageName={stageName}
                     matter={state.matter}
                     onRestart={() => {
                       sfx("tap");
-                      if (state.status === "gameover") {
-                        // 死亡续玩：保留已累计物质与等级，清场回满血重来。
-                        revive(store.getState());
-                        store.notify();
+                      const st = store.getState();
+                      if (st.status === "gameover") {
+                        // 死亡续玩：保留等级与物质，从当前等级重新开始。
+                        revive(st);
                       } else {
                         store.reset(W, H);
                       }
+                      store.notify();
                     }}
                     screenW={W}
                     screenH={H}
@@ -233,6 +243,7 @@ export default function GamePage() {
               <StartMenu
                 onStart={() => {
                   sfx("tap");
+                  store.reset(W, H);
                   setStarted(true);
                 }}
                 screenW={W}

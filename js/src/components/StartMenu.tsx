@@ -12,7 +12,7 @@ import { BLACK_HOLE_STAGE } from "../game/config";
 import Planet from "./Planet";
 
 interface StartMenuProps {
-  /** 点击「开始游戏」回调。 */
+  /** 点击「单人游戏」回调。 */
   onStart: () => void;
   screenW: number;
   screenH: number;
@@ -96,13 +96,20 @@ export default function StartMenu({
             }}
           >
             <Text
-              text="开始游戏"
+              text="单人游戏"
               color="#000000"
               fontSize={18}
               fontWeight="bold"
             />
           </Container>
         </GestureDetector>
+
+        <SizedBox height={16} />
+        <Text
+          text="吞噬陨石与行星，逐级进化，最终化为另一个宇宙"
+          color="#90a4ae"
+          fontSize={12}
+        />
       </Column>
     </Container>
   );
