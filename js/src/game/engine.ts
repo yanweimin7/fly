@@ -6,7 +6,7 @@
  * 半径 r 既是绘制半径也是碰撞半径。绘制与碰撞天然一致，无「缩放 / 视觉半径」折算。
  */
 
-import type { Entity, GameState, InputState, PlayerState } from "../store/game";
+import type { Entity, GameState, InputState } from "../store/game";
 import { sfx } from "./sound";
 import { hasRing } from "./models";
 import {
@@ -133,29 +133,27 @@ function isBlackHole(e: Entity): boolean {
 }
 
 /** 判定某自由天体是否为「可被黑洞引力吸入 / 吞噬」的目标（与碰撞同一套吞食规则）。 */
-function edible(pl: PlayerState, e: Entity): boolean {
-  const p = pl.entity;
-  if (e.power < pl.stageIndex) return true;
-  return e.power === pl.stageIndex && e.radius < p.radius * 0.95;
+function edible(state: GameState, e: Entity): boolean {
+  const p = state.player;
+  if (e.power < state.stageIndex) return true;
+  return e.power === state.stageIndex && e.radius < p.radius * 0.95;
 }
 
 /** 黑洞吸入开始：物质即时结算，但天体不立即消失——保留身形坠向中心并缩小，到达后移除。 */
-function startFallIn(state: GameState, pi: number, e: Entity): void {
-  absorb(state, pi, e, false);
+function startFallIn(state: GameState, e: Entity): void {
+  absorb(state, e, false);
   e.removed = false;
   e.fallingIn = true;
-  e.fallOwner = pi;
-  const p = state.players[pi].entity;
+  const p = state.player;
   addSuck(state, p.x, p.y, p.radius * 0.75, p.radius * BLACKHOLE_GRAVITY_RATIO);
 }
 
 /** 玩家被场上黑洞吸入：进入坠向洞心的动画（startSwallowPlayer → step 推进 → 判定死亡）。
  * 与天体被玩家自身黑洞吸入同一套表现：吸积颗粒 + 坠向中心缩小至不见。 */
-function startSwallowPlayer(state: GameState, pi: number, hole: Entity): void {
-  const pl = state.players[pi];
-  if (pl.swallow) return;
-  pl.swallow = { id: hole.id, x: hole.x, y: hole.y };
-  pl.hitFlash = HIT_FLASH_FRAMES;
+function startSwallowPlayer(state: GameState, hole: Entity): void {
+  if (state.swallow) return;
+  state.swallow = { id: hole.id, x: hole.x, y: hole.y };
+  state.hitFlash = HIT_FLASH_FRAMES;
   sfx("suck");
   addSuck(
     state,
@@ -187,17 +185,20 @@ function matterOf(power: number, radius: number): number {
 
 /** 创建新游戏状态：零陨石开局（玩家独自，场上无自由天体；
  * 首颗陨石在 SPAWN_INTERVAL 后经盲区生成，须主动寻找）。 */
-function makePlayer(
-  id: number,
-  x: number,
-  y: number,
-  label: string,
-): PlayerState {
+export function createGame(
+  screenW: number = 360,
+  screenH: number = 640,
+): GameState {
+  const cx = screenW / 2;
+  const cy = screenH / 2;
+  // 不再在 createGame 中填充初始天体。
+  // 第一批盲区天体将在 SPAWN_INTERVAL 后由 step() 的时间闸门触发，高速漂入。
   return {
-    entity: {
-      id,
-      x,
-      y,
+    status: "playing",
+    player: {
+      id: 0,
+      x: cx,
+      y: cy,
       vx: 0,
       vy: 0,
       radius: STAGES[0].r,
@@ -207,7 +208,6 @@ function makePlayer(
       maxHp: MAX_HEALTH,
       isSatellite: false,
     },
-    label,
     stageIndex: 0,
     matter: 0,
     health: MAX_HEALTH,
@@ -217,68 +217,14 @@ function makePlayer(
     blockFlash: 0,
     transform: false,
     transformT: 0,
-    input: { dx: 0, dy: 0, intensity: 0 },
     dead: false,
-  };
-}
-
-/** 单人兼容访问器：state.player / stageIndex / matter ... 转发到 players[0]。 */
-function installSoloAliases(state: GameState): void {
-  const link = <K extends keyof PlayerState>(
-    key: K,
-    target: keyof GameState,
-  ): void => {
-    Object.defineProperty(state, target, {
-      enumerable: true,
-      configurable: true,
-      get: () => state.players[0][key],
-      set: (v: PlayerState[K]) => {
-        state.players[0][key] = v;
-      },
-    });
-  };
-  Object.defineProperty(state, "player", {
-    enumerable: true,
-    configurable: true,
-    get: () => state.players[0].entity,
-    set: (v: Entity) => {
-      state.players[0].entity = v;
-    },
-  });
-  link("satellites", "satellites");
-  link("matter", "matter");
-  link("stageIndex", "stageIndex");
-  link("health", "health");
-  link("maxHealth", "maxHealth");
-  link("hitFlash", "hitFlash");
-  link("blockFlash", "blockFlash");
-  link("transform", "transform");
-  link("transformT", "transformT");
-  link("swallow", "swallow");
-}
-
-export function createGame(
-  screenW: number = 360,
-  screenH: number = 640,
-): GameState {
-  const cx = screenW / 2;
-  const cy = screenH / 2;
-  // 单人：只有人类玩家，居中出生。
-  const players: PlayerState[] = [makePlayer(0, cx, cy, "玩家1")];
-  const state = {
-    status: "playing",
-    players,
     entities: [],
     time: 0,
     bigSpawnTimes: [],
     nextSpawnAt: SPAWN_INTERVAL,
     nextEntityId: 1,
     effects: [],
-  } as unknown as GameState;
-  installSoloAliases(state);
-  // 不再在 createGame 中填充初始天体。
-  // 第一批盲区天体将在 SPAWN_INTERVAL 后由 step() 的时间闸门触发，高速漂入。
-  return state;
+  };
 }
 
 /** 死亡续玩：保留已累计的物质与进化等级，清空场上天体/碎屑、回满血、重置时间，
@@ -289,8 +235,8 @@ export function revive(state: GameState): void {
   const matter = state.matter;
   const fresh = createGame(getScreenW(), getScreenH());
   Object.assign(state, fresh);
-  // Object.assign 不会删除源对象上不存在的属性；胜者是上一局残留，必须显式清掉。
-  state.winner = undefined;
+  // Object.assign 不会删除源对象上不存在的可选属性，必须显式清掉。
+  state.swallow = undefined;
   state.stageIndex = stage;
   state.matter = matter;
   state.player.power = stage;
@@ -307,10 +253,9 @@ export function revive(state: GameState): void {
 export function spawnEntity(
   state: GameState,
   placement: "near" | "blind" = "near",
-  pi: number = 0,
 ): void {
-  const pr = state.players[pi].stageIndex;
-  const p = state.players[pi].entity;
+  const pr = state.stageIndex;
+  const p = state.player;
   const r = Math.random();
 
   let category: "small" | "mid" | "big";
@@ -381,7 +326,7 @@ export function spawnEntity(
   });
   // 圆形宇宙：生成点不得越过世界圆环边界（贴近边缘时环带被截断）；
   // 黑洞还要复查死亡线间距，回夹后不合格就丢弃这次生成。
-  clampToWorld(state, state.entities[state.entities.length - 1], pi);
+  clampToWorld(state, state.entities[state.entities.length - 1]);
 }
 
 /** 生成天体时与玩家保持的最小距离（像素）：黑洞必须让开整个引力圈 + 余量，
@@ -398,7 +343,7 @@ function spawnDistance(p: Entity, power: number, radius: number): number {
  * 玩家贴近世界边缘时（离原点可达 WORLD_RADIUS − 屏半对角线），盲区生成点会被回夹
  * 拉向圆心，落点可能直接怼到玩家脸上——回夹之后必须再判一次，不合格就丢弃这次生成
  * （黑洞有保底/定时生成，下一帧自然会重来），宁可少一个也不能把人圈死。 */
-function clampToWorld(state: GameState, e: Entity, pi: number): boolean {
+function clampToWorld(state: GameState, e: Entity): boolean {
   const dd = Math.hypot(e.x, e.y);
   const maxD = Math.max(1, WORLD_RADIUS - e.radius);
   if (dd > maxD) {
@@ -407,7 +352,7 @@ function clampToWorld(state: GameState, e: Entity, pi: number): boolean {
     e.y *= s;
   }
   if (e.power >= BLACK_HOLE_STAGE) {
-    const p = state.players[pi].entity;
+    const p = state.player;
     const need =
       e.radius * BLACKHOLE_GRAVITY_RATIO + p.radius + BLACKHOLE_SPAWN_CLEARANCE;
     if (dist(p.x, p.y, e.x, e.y) < need) {
@@ -438,10 +383,10 @@ function spawnHeading(power: number, towardAng: number): number {
 /** 保证玩家周围始终存在「下一等级」天体（进化链的直接目标）。不计入大天体限速。
  * 与常规生成一致走盲区放置：从屏幕外漂移入屏，不破坏「开局零陨石/须探索」的体验。
  * 「宇宙」是结局而非可游玩阶段：L10（黑洞）不再保底生成它。 */
-export function forceSpawnNext(state: GameState, pi: number = 0): void {
-  const pr = state.players[pi].stageIndex;
+export function forceSpawnNext(state: GameState): void {
+  const pr = state.stageIndex;
   if (pr >= STAGES.length - 2) return;
-  const p = state.players[pi].entity;
+  const p = state.player;
   const power = pr + 1;
   const radius = STAGES[power].r;
   const matterValue = matterOf(power, radius);
@@ -475,28 +420,25 @@ export function forceSpawnNext(state: GameState, pi: number = 0): void {
     isSatellite: false,
   });
   // 圆形宇宙：生成点不得越过世界圆环边界；黑洞还要复查死亡线间距。
-  clampToWorld(state, state.entities[state.entities.length - 1], pi);
+  clampToWorld(state, state.entities[state.entities.length - 1]);
 }
 
 /** 吞噬：更低等级天体被移除，累加物质并回血，玩家尺寸微增。 */
-function absorb(
-  state: GameState,
-  pi: number,
-  e: Entity,
-  ring: boolean = true,
-): void {
-  const pl = state.players[pi];
+function absorb(state: GameState, e: Entity, ring: boolean = true): void {
   let gain = e.matterValue;
   // 中子星(L9) / 黑洞(L10) / 宇宙(L11) 吸收恒星及以下获得额外能量。
-  if (pl.stageIndex >= 8 && e.power <= 6) {
+  if (state.stageIndex >= 8 && e.power <= 6) {
     gain += Math.round(e.matterValue * 0.5);
   }
-  pl.matter += gain;
+  state.matter += gain;
   sfx("eat");
-  const base = STAGES[pl.stageIndex].r;
-  pl.entity.radius = Math.min(pl.entity.radius + GROWTH, base * GROWTH_CAP);
-  const heal = Math.min(pl.maxHealth - pl.health, 1);
-  pl.health = Math.min(pl.maxHealth, pl.health + heal);
+  const base = STAGES[state.stageIndex].r;
+  state.player.radius = Math.min(
+    state.player.radius + GROWTH,
+    base * GROWTH_CAP,
+  );
+  const heal = Math.min(state.maxHealth - state.health, 1);
+  state.health = Math.min(state.maxHealth, state.health + heal);
   // 黑洞吸入模式下不追加爆炸圆环（由吸积颗粒替代）。
   if (ring) {
     addExplosion(
@@ -513,12 +455,11 @@ function absorb(
 /** 吞噬结算：更低等级 / 更小的天体被吞入。
  * 黑洞及以后：天体不变立即消失——转为坠向洞心、缩小到不见的吸入动画（startFallIn）；
  * 普通阶段播放爆炸扩散圆环。吞噬不会掉落更多陨石，物质只结算天体自身的 matterValue。 */
-function swallow(state: GameState, pi: number, e: Entity): void {
-  const blackHole = state.players[pi].stageIndex >= BLACK_HOLE_STAGE;
-  if (blackHole) {
-    startFallIn(state, pi, e);
+function swallow(state: GameState, e: Entity): void {
+  if (state.stageIndex >= BLACK_HOLE_STAGE) {
+    startFallIn(state, e);
   } else {
-    absorb(state, pi, e, true);
+    absorb(state, e, true);
   }
 }
 
@@ -528,16 +469,15 @@ function swallow(state: GameState, pi: number, e: Entity): void {
  *  - 更低等级 → 敌方爆炸消失，玩家吸收其物质
  *  - 同类中真实半径明显更小者亦视为食物；
  *  - 同类中相当/更大者 → 撞击掉血且敌方死（卫星可抵挡） */
-function resolvePlayerCollision(state: GameState, pi: number, e: Entity): void {
-  const pl = state.players[pi];
-  const p = pl.entity;
-  const pr = pl.stageIndex;
+function resolvePlayerCollision(state: GameState, e: Entity): void {
+  const p = state.player;
+  const pr = state.stageIndex;
   const rr = p.radius + e.radius;
   if (dist(p.x, p.y, e.x, e.y) >= rr) return;
 
   // 更低等级：敌方爆炸消失，玩家吸收物质。
   if (e.power < pr) {
-    swallow(state, pi, e);
+    swallow(state, e);
     return;
   }
 
@@ -545,7 +485,7 @@ function resolvePlayerCollision(state: GameState, pi: number, e: Entity): void {
   if (e.power > pr) {
     // 场上黑洞：玩家演出「被吸进去」（坠向洞心缩小至不见）。
     if (isBlackHole(e)) {
-      startSwallowPlayer(state, pi, e);
+      startSwallowPlayer(state, e);
       return;
     }
     // 玩家被撞毁（死亡效果）；敌方也显示吸收效果。
@@ -557,68 +497,64 @@ function resolvePlayerCollision(state: GameState, pi: number, e: Entity): void {
       STAGES[e.power].color ?? "#9e9e9e",
     );
     e.removed = true;
-    killPlayer(state, pi);
+    killPlayer(state);
     return;
   }
 
   // 同类：真实半径比玩家小 → 吞噬。
   if (e.radius < p.radius * 0.95) {
-    swallow(state, pi, e);
+    swallow(state, e);
     return;
   }
   // 同类且比玩家更大：正面撞上去直接死（卫星挡不住，大者存活）。
   if (e.radius > p.radius) {
-    killPlayer(state, pi);
+    killPlayer(state);
     return;
   }
-  const canShield = pl.stageIndex >= 3 && pl.satellites.length > 0;
+  const canShield = pr >= 3 && state.satellites.length > 0;
   if (canShield) {
-    pl.satellites.splice(0, 1);
-    pl.blockFlash = HIT_FLASH_FRAMES;
+    state.satellites.splice(0, 1);
+    state.blockFlash = HIT_FLASH_FRAMES;
   } else {
-    pl.health -= DAMAGE;
-    pl.hitFlash = HIT_FLASH_FRAMES;
+    state.health -= DAMAGE;
+    state.hitFlash = HIT_FLASH_FRAMES;
     sfx("damage");
   }
   shatter(state, e.x, e.y, e.radius, STAGES[e.power].color ?? "#9e9e9e");
   e.removed = true;
-  if (pl.health <= 0) {
-    killPlayer(state, pi);
+  if (state.health <= 0) {
+    killPlayer(state);
   }
 }
 
 /** 玩家出局（游戏结束）。 */
-function killPlayer(state: GameState, pi: number): void {
-  const pl = state.players[pi];
-  if (pl.dead) return;
-  pl.health = 0;
-  pl.dead = true;
-  pl.hitFlash = HIT_FLASH_FRAMES;
+function killPlayer(state: GameState): void {
+  if (state.dead) return;
+  state.health = 0;
+  state.dead = true;
+  state.hitFlash = HIT_FLASH_FRAMES;
+  const p = state.player;
   shatter(
     state,
-    pl.entity.x,
-    pl.entity.y,
-    pl.entity.radius,
-    STAGES[pl.stageIndex].color ?? "#9e9e9e",
+    p.x,
+    p.y,
+    p.radius,
+    STAGES[state.stageIndex].color ?? "#9e9e9e",
   );
   sfx("gameover", true);
   state.status = "gameover";
-  state.winner = undefined;
 }
 
 /** 土星环伤害：环带（斜视椭圆）内的其它天体每 RING.hitCooldown 秒受一次伤害。
  * 对环的持有者自身无效；玩家处于气态行星阶段（土星）时，自己的环同样伤害靠近的自由天体。 */
 function ringDamageTick(state: GameState): void {
-  const owners: { e: Entity; pi?: number }[] = state.entities
-    .filter((e) => !e.removed && !e.fallingIn && hasRing(e.power, e.id))
-    .map((e) => ({ e }));
-  state.players.forEach((pl, i) => {
-    if (pl.dead) return;
-    if (hasRing(pl.entity.power, pl.entity.id)) {
-      owners.push({ e: pl.entity, pi: i });
-    }
-  });
-  for (const { e: owner, pi: ownerPi } of owners) {
+  const owners: Entity[] = state.entities.filter(
+    (e) => !e.removed && !e.fallingIn && hasRing(e.power, e.id),
+  );
+  if (!state.dead && hasRing(state.player.power, state.player.id)) {
+    owners.push(state.player);
+  }
+  for (const owner of owners) {
     const aIn = RING.inner * owner.radius;
     const aOut = RING.outer * owner.radius;
     for (const e of state.entities) {
@@ -630,23 +566,6 @@ function ringDamageTick(state: GameState): void {
       e.ringHitAt = state.time;
       damageBody(state, e, RING.damage);
     }
-    // 其它玩家在环带内：同样掉血（持环者自身免疫）。
-    state.players.forEach((pl, i) => {
-      if (pl.dead || i === ownerPi) return;
-      if (pl.entity === owner) return;
-      if (state.time - (pl.ringHitAt ?? -RING.hitCooldown) < RING.hitCooldown) {
-        return;
-      }
-      if (!inRing(pl.entity, owner, aIn, aOut)) return;
-      pl.ringHitAt = state.time;
-      pl.health -= RING.damage;
-      pl.hitFlash = HIT_FLASH_FRAMES;
-      sfx("damage");
-      if (pl.health <= 0) {
-        pl.health = 0;
-        killPlayer(state, i);
-      }
-    });
   }
 }
 
@@ -668,12 +587,11 @@ function damageBody(state: GameState, e: Entity, amount: number): void {
 
 /** 环绕卫星撞击自由天体：按卫星等级造成伤害（SATELLITE_DAMAGE）；
  * 目标比卫星更大时卫星同归于尽，伤害照常结算。 */
-function resolveSatelliteCollisions(state: GameState, pi: number): void {
-  const pl = state.players[pi];
-  if (pl.satellites.length === 0) return;
-  const p = pl.entity;
+function resolveSatelliteCollisions(state: GameState): void {
+  if (state.satellites.length === 0) return;
+  const p = state.player;
   let died = false;
-  for (const s of pl.satellites) {
+  for (const s of state.satellites) {
     if (s.removed) continue;
     if (
       state.time - (s.hitAt ?? -SATELLITE_HIT_COOLDOWN) <
@@ -717,7 +635,7 @@ function resolveSatelliteCollisions(state: GameState, pi: number): void {
       break;
     }
   }
-  if (died) pl.satellites = pl.satellites.filter((s) => !s.removed);
+  if (died) state.satellites = state.satellites.filter((s) => !s.removed);
 }
 
 /** 伤害数字：在目标上方浮出并淡出（大天体血条太粗，小额掉血肉眼不可见）。 */
@@ -776,10 +694,9 @@ function resolveEntityCollisions(state: GameState): void {
 }
 
 /** 捕获：将捕获半径内最近的行星变为环绕卫星。仅 L4+ 可用。 */
-export function tryCapture(state: GameState, pi: number = 0): void {
-  const pl = state.players[pi];
-  if (!STAGES[pl.stageIndex].canCapture) return;
-  const p = pl.entity;
+export function tryCapture(state: GameState): void {
+  if (!STAGES[state.stageIndex].canCapture) return;
+  const p = state.player;
   let bestIdx = -1;
   let bestD = Infinity;
   for (let i = 0; i < state.entities.length; i++) {
@@ -797,28 +714,27 @@ export function tryCapture(state: GameState, pi: number = 0): void {
   e.isSatellite = true;
   e.angle = Math.random() * Math.PI * 2;
   // 轨道半径随玩家半径缩放（低等级用固定内移量），保证卫星始终环绕在玩家外侧。
-  e.orbitRadius = p.radius * (1.4 + 0.25 * pl.satellites.length);
-  pl.satellites.push(e);
+  e.orbitRadius = p.radius * (1.4 + 0.25 * state.satellites.length);
+  state.satellites.push(e);
 }
 
 /** 调试：直接提升一个等级（进化到下一阶段），并补满血量，便于快速预览各阶段体型。 */
-export function forceLevelUp(state: GameState, pi: number = 0): void {
-  const pl = state.players[pi];
-  if (pl.stageIndex >= STAGES.length - 1) return;
-  pl.stageIndex++;
-  pl.entity.radius = STAGES[pl.stageIndex].r;
-  pl.entity.power = pl.stageIndex;
-  pl.health = pl.maxHealth;
-  pl.matter = STAGES[pl.stageIndex].reachMatter;
+export function forceLevelUp(state: GameState): void {
+  if (state.stageIndex >= STAGES.length - 1) return;
+  state.stageIndex++;
+  state.player.radius = STAGES[state.stageIndex].r;
+  state.player.power = state.stageIndex;
+  state.health = state.maxHealth;
+  state.matter = STAGES[state.stageIndex].reachMatter;
 }
 
-/** 推进一帧。inputs 为各玩家的摇杆输入（单人只需第一项），dt 为步长（秒）。 */
+/** 推进一帧。input 为摇杆输入，dt 为步长（秒）。 */
 export function step(
   state: GameState,
-  inputs: InputState[],
+  input: InputState,
   dt: number = DT,
 ): void {
-  // 宇宙结局转场（仅单人）：冻结玩法，按叙事推进时间线；结束时置 win（见文末）。
+  // 宇宙结局转场：冻结玩法，按叙事推进时间线；结束时置 win（见文末）。
   if (state.transform) {
     state.time += dt;
     state.transformT += dt;
@@ -851,22 +767,17 @@ export function step(
   }
 
   state.time += dt;
-  for (const pl of state.players) {
-    if (pl.hitFlash > 0) pl.hitFlash--;
-    if (pl.blockFlash > 0) pl.blockFlash--;
-  }
+  if (state.hitFlash > 0) state.hitFlash--;
+  if (state.blockFlash > 0) state.blockFlash--;
 
   // 爆炸特效老化（任何状态都推进，保证死亡后扩散动画放完）。
   for (const fx of state.effects) fx.age += dt;
   state.effects = state.effects.filter((fx) => fx.age < fx.life);
 
-  // 被场上黑洞吸入（单人）：冻结玩法输入，玩家坠向洞心并缩小，坠到中心才判定死亡。
+  // 被场上黑洞吸入：冻结玩法输入，玩家坠向洞心并缩小，坠到中心才判定死亡。
   // 场上天体照常漂移（黑洞本体也在动，每帧回填最新坐标）。
-  const swallowIdx = state.players.findIndex((pl) => pl.swallow);
-  if (swallowIdx >= 0) {
-    const pl = state.players[swallowIdx];
-    const sw = pl.swallow;
-    if (!sw) return;
+  if (state.swallow) {
+    const sw = state.swallow;
     for (const e of state.entities) {
       if (e.removed) continue;
       e.x += e.vx * dt;
@@ -877,7 +788,7 @@ export function step(
       sw.x = hole.x;
       sw.y = hole.y;
     }
-    const p = pl.entity;
+    const p = state.player;
     const dx = sw.x - p.x;
     const dy = sw.y - p.y;
     const d = Math.max(1, Math.hypot(dx, dy));
@@ -885,8 +796,8 @@ export function step(
     p.y += (dy / d) * BLACKHOLE_FALL_SPEED * dt;
     p.radius = Math.max(0.4, p.radius * (1 - BLACKHOLE_FALL_SHRINK * dt));
     if (d <= 3 || p.radius <= 0.4) {
-      pl.swallow = undefined;
-      killPlayer(state, swallowIdx);
+      state.swallow = undefined;
+      killPlayer(state);
     }
     return;
   }
@@ -897,15 +808,11 @@ export function step(
       e.x += e.vx * dt;
       e.y += e.vy * dt;
     }
-    for (const pl of state.players) {
-      for (const s of pl.satellites) {
-        s.angle = (s.angle ?? 0) + ORBIT_SPEED * dt;
-      }
+    for (const s of state.satellites) {
+      s.angle = (s.angle ?? 0) + ORBIT_SPEED * dt;
     }
-    state.entities = state.entities.filter((e) =>
-      state.players.some(
-        (pl) => dist(pl.entity.x, pl.entity.y, e.x, e.y) <= despawnDist(),
-      ),
+    state.entities = state.entities.filter(
+      (e) => dist(state.player.x, state.player.y, e.x, e.y) <= despawnDist(),
     );
     return;
   }
@@ -915,9 +822,8 @@ export function step(
   // PLAYER_SPEED —— 进了引力圈就挣不出去（引力圈 = 死亡线）。
   // 刻意排在摇杆移动「之前」：否则贴着圈边缘的玩家一帧就能跨出去重获自由，
   // 边界判定要用本帧起始位置，才符合「只要进入引力圈就必死」。
-  for (const pl of state.players) {
-    if (pl.dead) continue;
-    const p = pl.entity;
+  if (!state.dead) {
+    const p = state.player;
     for (const e of state.entities) {
       if (e.removed || !isBlackHole(e)) continue;
       const gr = e.radius * BLACKHOLE_GRAVITY_RATIO;
@@ -933,10 +839,8 @@ export function step(
   }
 
   // 玩家移动：摇杆方向（归一化）× 强度 → 速度（屏幕恒定速度）。
-  state.players.forEach((pl, i) => {
-    if (pl.dead) return;
-    const p = pl.entity;
-    const input = inputs[i] ?? { dx: 0, dy: 0, intensity: 0 };
+  if (!state.dead) {
+    const p = state.player;
     const mag = Math.hypot(input.dx, input.dy);
     if (mag > 1 && input.intensity > 0) {
       const vx = (input.dx / mag) * PLAYER_SPEED * input.intensity;
@@ -952,17 +856,16 @@ export function step(
         p.y *= s;
       }
     }
-  });
+  }
 
   // 黑洞引力范围：视界外、范围内、且可被吞食的天体持续被加速拉向黑洞中心（越近越强）。
   // 直奔致死的大天体不被牵引，避免黑洞把「宇宙」之类拉进来自杀。
-  for (const pl of state.players) {
-    if (pl.dead || pl.stageIndex < BLACK_HOLE_STAGE) continue;
-    const p = pl.entity;
+  if (!state.dead && state.stageIndex >= BLACK_HOLE_STAGE) {
+    const p = state.player;
     const gr = p.radius * BLACKHOLE_GRAVITY_RATIO;
     for (const e of state.entities) {
       if (e.removed || e.fallingIn) continue;
-      if (!edible(pl, e)) continue;
+      if (!edible(state, e)) continue;
       const d = dist(p.x, p.y, e.x, e.y);
       if (d <= 0 || d >= gr) continue;
       const pull = BLACKHOLE_GRAVITY_PULL * (1 - d / gr);
@@ -974,8 +877,7 @@ export function step(
   // 自由天体漂移；黑洞吸入中的天体坠向洞心并缩小，到中心后移除。
   for (const e of state.entities) {
     if (e.fallingIn) {
-      const owner =
-        state.players[e.fallOwner ?? 0]?.entity ?? state.players[0].entity;
+      const owner = state.player;
       const dx = owner.x - e.x;
       const dy = owner.y - e.y;
       const d = Math.max(1, Math.hypot(dx, dy));
@@ -990,91 +892,72 @@ export function step(
   }
 
   // 环绕卫星更新轨道角。
-  for (const pl of state.players) {
-    for (const s of pl.satellites) {
-      s.angle = (s.angle ?? 0) + ORBIT_SPEED * dt;
-    }
+  for (const s of state.satellites) {
+    s.angle = (s.angle ?? 0) + ORBIT_SPEED * dt;
   }
 
   // 碰撞结算（迭代快照：崩解产生的碎屑在下帧才参与，避免边遍历边扩数组）。
   const snapshot = state.entities.slice();
   for (const e of snapshot) {
-    if (e.removed || e.fallingIn) continue;
-    state.players.forEach((pl, i) => {
-      if (pl.dead) return;
-      resolvePlayerCollision(state, i, e);
-    });
+    if (e.removed || e.fallingIn || state.dead) continue;
+    resolvePlayerCollision(state, e);
   }
   resolveEntityCollisions(state);
   // 环绕卫星撞击：伤害目标；撞上更大的天体时卫星阵亡。
-  state.players.forEach((pl, i) => {
-    if (pl.dead) return;
-    resolveSatelliteCollisions(state, i);
-  });
-  // 土星环：环带内的其它天体/玩家持续掉血。
+  if (!state.dead) resolveSatelliteCollisions(state);
+  // 土星环：环带内的其它天体持续掉血。
   ringDamageTick(state);
 
   // 移除被吞噬 / 撞击消耗的天体。
   state.entities = state.entities.filter((e) => !e.removed);
 
-  // 回收过远天体（相对任一玩家都过远才回收）。
-  state.entities = state.entities.filter((e) =>
-    state.players.some(
-      (pl) => dist(pl.entity.x, pl.entity.y, e.x, e.y) <= despawnDist(),
-    ),
+  // 回收过远天体。
+  state.entities = state.entities.filter(
+    (e) => dist(state.player.x, state.player.y, e.x, e.y) <= despawnDist(),
   );
 
-  const nearCount = (pi: number): number => {
-    const p = state.players[pi].entity;
-    return state.entities.filter(
-      (e) => dist(p.x, p.y, e.x, e.y) <= despawnDist(),
+  const nearCount = (): number =>
+    state.entities.filter(
+      (e) => dist(state.player.x, state.player.y, e.x, e.y) <= despawnDist(),
     ).length;
-  };
 
   // 盲区定时生成：达到生成间隔时在盲区补 1 颗（上限约束）或开局填充，被吞噬/回收的天体
   // 不即时复活，玩家须移动探索寻找从屏幕外飘入的新陨石。
   // 开局填充：首帧即铺满 TARGET_ENTITIES(12) 颗于盲区，避免「零陨石+纯黑背景」整屏死寂，
   // 同时保持零陨石在玩家身边、须探索的核心体验；随后转为每秒 1 颗补充。
-  if (state.time < SPAWN_INTERVAL) {
-    state.players.forEach((_pl, i) => {
-      if (nearCount(i) !== 0) return;
-      while (nearCount(i) < TARGET_ENTITIES) spawnEntity(state, "blind", i);
-    });
+  if (state.time < SPAWN_INTERVAL && nearCount() === 0) {
+    while (nearCount() < TARGET_ENTITIES) spawnEntity(state, "blind");
   }
   if (state.time >= state.nextSpawnAt) {
-    state.players.forEach((_pl, i) => {
-      if (nearCount(i) < TARGET_ENTITIES) spawnEntity(state, "blind", i);
-    });
+    if (nearCount() < TARGET_ENTITIES) spawnEntity(state, "blind");
     state.nextSpawnAt = state.time + SPAWN_INTERVAL;
   }
 
-  // 进化链保底：每个玩家附近始终存在「下一等级」天体，确保可一路向上进化。
-  state.players.forEach((pl, i) => {
-    if (pl.dead || pl.stageIndex >= STAGES.length - 1) return;
-    const p = pl.entity;
+  // 进化链保底：玩家附近始终存在「下一等级」天体，确保可一路向上进化。
+  if (!state.dead && state.stageIndex < STAGES.length - 1) {
+    const p = state.player;
     const has = state.entities.some(
       (e) =>
-        e.power === pl.stageIndex + 1 &&
+        e.power === state.stageIndex + 1 &&
         dist(p.x, p.y, e.x, e.y) <= despawnDist(),
     );
-    if (!has) forceSpawnNext(state, i);
-  });
+    if (!has) forceSpawnNext(state);
+  }
 
   // 进化切换：累计物质跨越阈值则升级，半径重置为等级基础值。
   // 每次只进化一阶：进化后将物质重置为本阶阈值，丢弃溢出，避免一次吞噬连跨多阶。
-  state.players.forEach((pl) => {
-    if (pl.dead) return;
+  if (!state.dead) {
     while (
-      pl.stageIndex < STAGES.length - 1 &&
-      pl.matter >= STAGES[pl.stageIndex + 1].reachMatter
+      state.stageIndex < STAGES.length - 1 &&
+      state.matter >= STAGES[state.stageIndex + 1].reachMatter
     ) {
-      pl.stageIndex++;
-      pl.entity.radius = STAGES[pl.stageIndex].r;
-      pl.entity.power = pl.stageIndex;
-      pl.matter = STAGES[pl.stageIndex].reachMatter;
+      state.stageIndex++;
+      state.player.radius = STAGES[state.stageIndex].r;
+      state.player.power = state.stageIndex;
+      state.matter = STAGES[state.stageIndex].reachMatter;
       sfx("evolve", true);
     }
-  });
+  }
 
   // 结局：进化到顶点（宇宙）即判胜，同时进入「团聚成蓝点 → 爆炸 → 化为宇宙」
   // 转场；胜利覆盖层立即出现，转场在下方继续演出。
@@ -1084,7 +967,6 @@ export function step(
     state.stageIndex === STAGES.length - 1
   ) {
     state.status = "win";
-    state.winner = 0;
     state.transform = true;
     state.transformT = 0;
     sfx("win", true);

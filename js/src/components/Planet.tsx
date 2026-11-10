@@ -340,83 +340,6 @@ function glowingStar(
   return node;
 }
 
-function blackhole(d: number, C: number, id: number): React.ReactNode[] {
-  const jb = (srand(id * 7) - 0.5) * 0.1;
-  const s = d * 0.34; // 事件视界半径：纯黑「洞」本体，占主体
-  const ph = Math.max(2.2, d * 0.026); // 光子环宽度：细了会在纯黑星空上被背景噪点淹没
-  return [
-    // 外围引力透镜余晖：紫调光晕铺满全幅，保证黑洞在纯黑星空上仍有可辨识的轮廓
-    radialGlow(
-      d,
-      [
-        alphaOf(shade("#7b3fd4", jb), 0.5),
-        alphaOf("#5b2a8a", 0.26),
-        alphaOf("#2a1650", 0.08),
-        alphaOf("#2a1650", 0),
-      ],
-      [0, 0.42, 0.72, 1],
-      "halo",
-    ),
-    // 吸积盘：环绕视界外缘的亮环（白热→橙→渐隐），盘面清晰可见
-    radialGlow(
-      d,
-      [
-        alphaOf("#ff7a33", 0),
-        alphaOf("#fff2cc", 0),
-        alphaOf("#fff2cc", 0),
-        alphaOf("#fff7e0", 1),
-        alphaOf("#ffd9a8", 0.85),
-        alphaOf("#ff8a3c", 0.4),
-        alphaOf("#ff5a22", 0),
-      ],
-      [0, 0.4, 0.68, 0.78, 0.88, 0.96, 1],
-      "disk",
-    ),
-    // 纯黑事件视界：洞内（含中心）为不透明深黑，压在吸积盘之上
-    <Positioned
-      key="shadow"
-      left={C - s}
-      top={C - s}
-      width={s * 2}
-      height={s * 2}
-    >
-      <Container
-        width={s * 2}
-        height={s * 2}
-        decoration={{
-          color: alphaOf("#000000", 1),
-          borderRadius: s,
-        }}
-      />
-    </Positioned>,
-    // 光子球环：仅留一条白热细环标明黑洞边界，保证黑体在夜幕中仍可见
-    <Positioned
-      key="photon"
-      left={C - s}
-      top={C - s}
-      width={s * 2}
-      height={s * 2}
-    >
-      <Container
-        width={s * 2}
-        height={s * 2}
-        decoration={{
-          borderRadius: s,
-          border: {
-            width: ph,
-            color: alphaOf("#fff7e0", 0.95),
-          },
-          boxShadow: {
-            color: alphaOf("#ffd9a0", 0.6),
-            blurRadius: d * 0.03,
-            spreadRadius: 0,
-          },
-        }}
-      />
-    </Positioned>,
-  ];
-}
-
 /** 宇宙最终形态：整个星海被裁成圆形天体 + 外缘一圈「宇宙膜」亮环，圆而非方。 */
 function nebula(d: number): React.ReactNode[] {
   const blobs: Array<{ x: number; y: number; s: number; c: string }> = [
@@ -525,10 +448,8 @@ function PlanetComponent({ radius, power, id, time }: PlanetProps) {
     case 8:
       nodes = glowingStar(d, C, id, "neutron", time);
       break;
-    case 9:
-      nodes = blackhole(d, C, id);
-      break;
     default:
+      // 黑洞（9）由 GameField 的 Scene3D 3D 层渲染；这里只剩宇宙（10）的星海。
       nodes = nebula(d);
       break;
   }

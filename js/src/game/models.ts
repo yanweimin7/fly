@@ -4,7 +4,15 @@
  * 同一档有多个贴图变体（地球/金星/火星、土星/木星/天王星/海王星……），
  * 按实体 id 稳定选一个，保证同一实体外观不跳变；引擎也用它判断是否带环
  * （土星模型有环，环是伤害区域）。
+ *
+ * 黑洞没有贴图变体，使用纯程序化生成的 3D 模型（tools/gen_blackhole_glb.py）：
+ * 纯黑事件视界球体 + 倾斜吸积盘 + 光子环，全部由 Scene3D 渲染。
  */
+
+import { BLACK_HOLE_STAGE } from "./config";
+
+/** 黑洞 3D 模型（bundle 相对路径）。 */
+export const BLACKHOLE_MODEL = "models/blackhole.glb";
 
 export const STAGE_MODELS: string[][] = [
   ["planet_01", "planet_01_b", "planet_01_c"],
@@ -30,8 +38,9 @@ export function modelBase(power: number, id: number): string {
   return STAGE_MODELS[power]?.[variantIndex(power, id)] ?? STAGE_MODELS[0][0];
 }
 
-/** 实体 → 3D 层资源路径。 */
+/** 实体 → 3D 层资源路径。黑洞固定使用程序化 3D 模型。 */
 export function stageModel(power: number, id: number): string {
+  if (power === BLACK_HOLE_STAGE) return BLACKHOLE_MODEL;
   return `models/${modelBase(power, id)}.glb`;
 }
 

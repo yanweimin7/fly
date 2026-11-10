@@ -16,7 +16,7 @@ import type { Scene3DBody } from "@fuickjs-community/scene3d";
 
 const MARGIN = 80;
 
-/** 冷行星（0-4）与恒星（5-8）用 3D 模型渲染；黑洞/宇宙（9+）继续走 2D。 */
+/** 冷行星（0-4）、恒星（5-8）与黑洞（9）用 3D 模型渲染；宇宙（10）继续走 2D。 */
 const MAX_3D_POWER = 8;
 /** 血条高度 / 与天体的间距（像素）。 */
 const HP_BAR_H = 3;
@@ -48,8 +48,7 @@ interface GameFieldProps {
 /** 星空场地：世界为圆形宇宙，相机跟随玩家但不会越过世界圆环——靠近边缘时
  * 玩家偏离屏幕中心、圆环边界可见（不锁定在正中）。 */
 export default function GameField({ state, screenW, screenH }: GameFieldProps) {
-  const viewer = state.players[0];
-  const p = viewer.entity;
+  const p = state.player;
   // 相机偏移：屏幕中心对应玩家世界坐标，其余实体/特效相对玩家平移。
   // 相机被夹在世界圆环内（保留半个屏幕对角线的余量，保证圆环始终在视野内）。
   const { ox, oy } = computeCamera(p.x, p.y, p.radius, screenW, screenH);
@@ -61,8 +60,11 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
     // 冷行星(0-4)现在自转（球面光照渲染），发光天体（5-8）外观脉动，全部依赖 time。
     const t = state.time;
 
-    // 冷行星/恒星交给底部 Scene3D 3D 层（真实 GLB 模型）。
-    if (body.power <= MAX_3D_POWER) {
+    // 冷行星/恒星/黑洞交给底部 Scene3D 3D 层（真实 GLB 模型）。
+    // 黑洞是真正的 3D 模型：纯黑球体事件视界 + 倾斜吸积盘 + 光子环，
+    // 几何自带固定倾角，不能再叠加行星自转/轴倾角（否则盘面会翻转）。
+    if (body.power <= MAX_3D_POWER || body.power === BLACK_HOLE_STAGE) {
+      const blackHole = body.power === BLACK_HOLE_STAGE;
       const glow = STAR_GLOW[body.power];
       bodies3d.push({
         id: body.id,
@@ -70,8 +72,8 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
         x: sx,
         y: sy,
         size: d,
-        spin: t * spinSpeed(body.id),
-        tilt: BODY_TILT,
+        spin: blackHole ? 0 : t * spinSpeed(body.id),
+        tilt: blackHole ? 0 : BODY_TILT,
         // 恒星光线也交给 3D 层：场景内广告牌光晕（随相机/场景一起渲染）。
         glow: glow?.glow,
         glowColor: glow?.color,
@@ -165,17 +167,15 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
   }
 
   const sats: React.ReactNode[] = [];
-  for (const pl of state.players) {
-    for (const s of pl.satellites) {
-      const a = s.angle ?? 0;
-      const sx = pl.entity.x + Math.cos(a) * (s.orbitRadius ?? 0) - ox;
-      const sy = pl.entity.y + Math.sin(a) * (s.orbitRadius ?? 0) - oy;
-      sats.push(
-        <React.Fragment key={`s${pl.entity.id}-${s.id}`}>
-          {renderBody(sx, sy, s)}
-        </React.Fragment>,
-      );
-    }
+  for (const s of state.satellites) {
+    const a = s.angle ?? 0;
+    const sx = p.x + Math.cos(a) * (s.orbitRadius ?? 0) - ox;
+    const sy = p.y + Math.sin(a) * (s.orbitRadius ?? 0) - oy;
+    sats.push(
+      <React.Fragment key={`s${p.id}-${s.id}`}>
+        {renderBody(sx, sy, s)}
+      </React.Fragment>,
+    );
   }
 
   // 黑洞引力范围圈：淡紫径向渐变 + 细边，标出吸力边界。
@@ -214,18 +214,9 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
     );
   };
   const gravityRings: React.ReactNode[] = [];
-  state.players.forEach((pl, i) => {
-    if (pl.stageIndex >= BLACK_HOLE_STAGE) {
-      gravityRings.push(
-        gravityRing(
-          pl.entity.x - ox,
-          pl.entity.y - oy,
-          pl.entity.radius,
-          `gh-p${i}`,
-        ),
-      );
-    }
-  });
+  if (state.stageIndex >= BLACK_HOLE_STAGE) {
+    gravityRings.push(gravityRing(p.x - ox, p.y - oy, p.radius, "gh-player"));
+  }
   for (const e of state.entities) {
     if (e.removed || e.power < BLACK_HOLE_STAGE) continue;
     if (e.x - ox < -MARGIN || e.x - ox > screenW + MARGIN) continue;
@@ -360,31 +351,28 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
     }
   }
 
-  // 玩家（单人只有一个，players 数组仍保留通用结构）。
+  // 玩家（纯单人）。
   const playerNodes: React.ReactNode[] = [];
   const playerNodesTop: React.ReactNode[] = [];
-  state.players.forEach((pl, i) => {
-    const sx = pl.entity.x - ox;
-    const sy = pl.entity.y - oy;
+  {
+    const sx = p.x - ox;
+    const sy = p.y - oy;
     if (
-      sx < -MARGIN - pl.entity.radius ||
-      sx > screenW + MARGIN + pl.entity.radius ||
-      sy < -MARGIN - pl.entity.radius ||
-      sy > screenH + MARGIN + pl.entity.radius
+      sx >= -MARGIN - p.radius &&
+      sx <= screenW + MARGIN + p.radius &&
+      sy >= -MARGIN - p.radius &&
+      sy <= screenH + MARGIN + p.radius
     ) {
-      return;
+      const node = (
+        <React.Fragment key="player">{renderBody(sx, sy, p)}</React.Fragment>
+      );
+      if (state.swallow) {
+        playerNodesTop.push(node);
+      } else {
+        playerNodes.push(node);
+      }
     }
-    const node = (
-      <React.Fragment key={`p${i}`}>
-        {renderBody(sx, sy, pl.entity)}
-      </React.Fragment>
-    );
-    if (i === 0 && viewer.swallow) {
-      playerNodesTop.push(node);
-    } else {
-      playerNodes.push(node);
-    }
-  });
+  }
 
   return (
     <Stack width={screenW} height={screenH}>

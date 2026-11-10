@@ -40,42 +40,9 @@ export interface Entity {
   removed?: boolean;
   /** 黑洞吸入中：正坠向黑洞中心并缩小，到达中心后移除（不再参与碰撞）。 */
   fallingIn?: boolean;
-  /** 被哪个玩家（索引）的黑洞吸入：坠向该玩家而非固定玩家 0。 */
-  fallOwner?: number;
 }
 
 export type GameStatus = "playing" | "gameover" | "win";
-
-/** 单个玩家的全部状态。 */
-export interface PlayerState {
-  /** 玩家实体（世界坐标 / 半径 / 等级）。 */
-  entity: Entity;
-  /** 头顶标签（"玩家1"）。 */
-  label: string;
-  /** 当前等级 0 基索引。 */
-  stageIndex: number;
-  /** 累计物质总量。 */
-  matter: number;
-  health: number;
-  maxHealth: number;
-  /** 环绕卫星。 */
-  satellites: Entity[];
-  /** 受击闪烁剩余帧。 */
-  hitFlash: number;
-  /** 卫星抵挡闪烁剩余帧。 */
-  blockFlash: number;
-  /** 宇宙结局转场（仅单人模式使用）。 */
-  transform: boolean;
-  transformT: number;
-  /** 正在被场上黑洞吸入（坠向洞心缩小中）。 */
-  swallow?: Swallow;
-  /** 上次被土星环命中的时间（秒，用于环伤害间隔）。 */
-  ringHitAt?: number;
-  /** 本帧摇杆输入（由页面写入）。 */
-  input: InputState;
-  /** 已出局。 */
-  dead: boolean;
-}
 
 /** 特效类型：ring=扩散圆环（撞击爆炸）；suck=黑洞吸入（颗粒螺旋收束变小、淡入洞内）。 */
 export type EffectType = "ring" | "suck" | "text";
@@ -110,11 +77,31 @@ export interface Swallow {
   y: number;
 }
 
+/** 纯单人游戏状态：玩家相关字段直接挂在根上。 */
 export interface GameState {
   status: GameStatus;
-  players: PlayerState[];
-  /** 胜者索引（0/1）；平局时 undefined。 */
-  winner?: number;
+  /** 玩家实体（世界坐标 / 半径 / 等级）。 */
+  player: Entity;
+  /** 当前等级 0 基索引。 */
+  stageIndex: number;
+  /** 累计物质总量。 */
+  matter: number;
+  health: number;
+  maxHealth: number;
+  /** 环绕卫星。 */
+  satellites: Entity[];
+  /** 受击闪烁剩余帧。 */
+  hitFlash: number;
+  /** 卫星抵挡闪烁剩余帧。 */
+  blockFlash: number;
+  /** 宇宙结局转场。 */
+  transform: boolean;
+  /** 转场已进行时长（秒）。 */
+  transformT: number;
+  /** 正在被场上黑洞吸入（坠向洞心缩小中）。 */
+  swallow?: Swallow;
+  /** 已出局。 */
+  dead: boolean;
   entities: Entity[];
   time: number;
   /** 记录「比玩家明显更大」天体的生成时间戳，用于每分钟生成数限速。 */
@@ -124,28 +111,6 @@ export interface GameState {
   nextEntityId: number;
   /** 撞击爆炸特效（圆环扩散动画）。 */
   effects: Effect[];
-
-  // ---- 单人兼容访问器：运行时 getter/setter 转发到 players[0] ----
-  /** 玩家实体（= players[0].entity）。 */
-  player: Entity;
-  /** 环绕卫星（= players[0].satellites）。 */
-  satellites: Entity[];
-  /** 累计物质总量（= players[0].matter）。 */
-  matter: number;
-  /** 当前等级 0 基索引（= players[0].stageIndex）。 */
-  stageIndex: number;
-  health: number;
-  maxHealth: number;
-  /** 受击闪烁剩余帧（= players[0].hitFlash）。 */
-  hitFlash: number;
-  /** 卫星抵挡闪烁剩余帧（= players[0].blockFlash）。 */
-  blockFlash: number;
-  /** 宇宙结局转场（= players[0].transform）。 */
-  transform: boolean;
-  /** 转场已进行时长（= players[0].transformT）。 */
-  transformT: number;
-  /** 正在被场上黑洞吸入（= players[0].swallow）。 */
-  swallow?: Swallow;
 }
 
 /** 摇杆输入：dx/dy 为相对起点的位移（像素），intensity 为 0~1 强度。 */
@@ -189,7 +154,7 @@ export class GameStore {
     };
   }
 
-  /** 重新开始一局（保留模式）。 */
+  /** 重新开始一局。 */
   reset(screenW?: number, screenH?: number): void {
     this.setState(createGame(screenW, screenH));
   }

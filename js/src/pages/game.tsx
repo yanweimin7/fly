@@ -68,12 +68,12 @@ export default function GamePage() {
         : 640;
 
   const storeRef = useRef<GameStore | null>(null);
-  if (!storeRef.current) storeRef.current = new GameStore(W, H, "solo");
+  if (!storeRef.current) storeRef.current = new GameStore(W, H);
   const store = storeRef.current;
 
   // 开始菜单闸门：未点「开始游戏」前不推进游戏（时间/生成/碰撞全部冻结）。
   const [started, setStarted] = useState(false);
-  // 摇杆输入（单人只有一个玩家）。
+  // 摇杆输入。
   const inputRef = useRef<InputState>({ dx: 0, dy: 0, intensity: 0 });
   const [, setTick] = useState(0);
 
@@ -102,21 +102,20 @@ export default function GamePage() {
       // 未开始：冻结玩法（星空仍在渲染，只是不推进游戏时间）。
       if (!started) return;
       const st = store.getState();
-      step(st, [inputRef.current], DT);
+      step(st, inputRef.current, DT);
       store.notify();
     }, 1000 / TICK_RATE);
     return () => clearInterval(id);
   }, [store, started]);
 
   const state = store.getState();
-  const canCapture = (pi: number): boolean => {
-    const pl = state.players[pi];
-    if (!pl || !STAGES[pl.stageIndex].canCapture) return false;
+  const canCapture = (): boolean => {
+    if (!STAGES[state.stageIndex].canCapture) return false;
     return state.entities.some(
       (e) =>
         e.power <= MAX_CAPTURE_POWER &&
-        Math.hypot(e.x - pl.entity.x, e.y - pl.entity.y) <=
-          pl.entity.radius + e.radius + CAPTURE_RANGE,
+        Math.hypot(e.x - state.player.x, e.y - state.player.y) <=
+          state.player.radius + e.radius + CAPTURE_RANGE,
     );
   };
   const stageName = `L${STAGES[state.stageIndex].id} ${STAGES[state.stageIndex].name}`;
@@ -198,10 +197,10 @@ export default function GamePage() {
 
               <Positioned right={22} bottom={40}>
                 <CaptureButton
-                  enabled={canCapture(0)}
+                  enabled={canCapture()}
                   onCapture={() => {
                     sfx("tap");
-                    tryCapture(store.getState(), 0);
+                    tryCapture(store.getState());
                     store.notify();
                   }}
                 />

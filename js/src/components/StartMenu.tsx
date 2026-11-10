@@ -3,16 +3,16 @@ import {
   Column,
   Container,
   Padding,
-  RepaintBoundary,
   Text,
   SizedBox,
   GestureDetector,
 } from "fuickjs";
-import { BLACK_HOLE_STAGE } from "../game/config";
-import Planet from "./Planet";
+import { SCENE3D_GFX } from "../game/config";
+import { BLACKHOLE_MODEL } from "../game/models";
+import { Scene3D } from "@fuickjs-community/scene3d";
 
 interface StartMenuProps {
-  /** 点击「单人游戏」回调。 */
+  /** 点击「开始游戏」回调。 */
   onStart: () => void;
   screenW: number;
   screenH: number;
@@ -41,18 +41,32 @@ export default function StartMenu({
   const panel = `rgba(8,10,20,${(0.88 * alpha).toFixed(3)})`;
   const btn = `rgba(79,195,247,${alpha.toFixed(3)})`;
 
-  // 菜单顶部装饰：复用游戏里的黑洞渲染（BLACK_HOLE_STAGE），随淡入一起显现。
+  // 菜单顶部装饰：与游戏内黑洞共用同一个纯 3D 模型（GLB）。
   const holeR = Math.min(84, screenW * 0.22);
 
   return (
     <Container width={screenW} height={screenH} alignment="center">
       <Column crossAxisAlignment="center" mainAxisAlignment="center">
-        {/* 黑洞：复用游戏内渲染（power = BLACK_HOLE_STAGE）。
-            Planet 返回的 Stack 带 width/height，框架 StackParser 会转成紧约束，
-            直接放进 Column 也不会再触发 "Stack requires bounded constraints"。 */}
-        <RepaintBoundary>
-          <Planet radius={holeR} power={BLACK_HOLE_STAGE} id={99} time={0} />
-        </RepaintBoundary>
+        {/* 黑洞：真正的 3D 场景（纯黑事件视界球体 + 倾斜吸积盘 + 光子环）。
+            Scene3D 自带固定尺寸，可直接放进 Column 居中。 */}
+        <Scene3D
+          width={holeR * 2}
+          height={holeR * 2}
+          bodies={[
+            {
+              id: 99,
+              src: BLACKHOLE_MODEL,
+              x: holeR,
+              y: holeR,
+              size: holeR * 2,
+              spin: 0,
+              tilt: 0,
+            },
+          ]}
+          lightDir={SCENE3D_GFX.lightDir}
+          lightIntensity={SCENE3D_GFX.lightIntensity}
+          envIntensity={SCENE3D_GFX.envIntensity}
+        />
 
         <SizedBox height={28} />
         <Container
@@ -96,7 +110,7 @@ export default function StartMenu({
             }}
           >
             <Text
-              text="单人游戏"
+              text="开始游戏"
               color="#000000"
               fontSize={18}
               fontWeight="bold"
