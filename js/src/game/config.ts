@@ -259,9 +259,6 @@ export const FINAL_MATTER = 5000;
 
 /** 黑洞引力范围系数：引力半径 = 玩家半径 × 该系数（L10 黑洞 r=105 → 约 273px）。 */
 export const BLACKHOLE_GRAVITY_RATIO = 2.6;
-/** 吸积盘自转速度（rad/s）：约 7 秒一圈。盘面纹理随之流动，让黑洞保持自然运动，
- * 同时阴影/光子环/透镜弧不旋转，避免上下不对称的透镜像被转歪。 */
-export const BLACKHOLE_DISK_SPIN = 0.9;
 /** 黑洞引力加速度（px/s²）：范围内可吞噬天体被加速拉向黑洞中心，越近越强。 */
 export const BLACKHOLE_GRAVITY_PULL = 120;
 /** 场上黑洞把「玩家」拉过去的加速度（px/s²）：从引力圈边缘（MIN）到洞心（MAX）线性上升。

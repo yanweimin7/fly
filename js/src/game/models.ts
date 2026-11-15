@@ -11,11 +11,8 @@
 
 import { BLACK_HOLE_STAGE } from "./config";
 
-/** 黑洞核心 3D 模型（bundle 相对路径）：阴影 + 光子环 + 透镜弧，保持静止。 */
+/** 黑洞 3D 模型（bundle 相对路径）：阴影 + 光子环 + 透镜弧，不含吸积盘实体。 */
 export const BLACKHOLE_MODEL = "models/blackhole.glb";
-
-/** 黑洞吸积盘 3D 模型：与核心同位置叠加，绕 Y 轴自转产生自然漩涡。 */
-export const BLACKHOLE_DISK_MODEL = "models/blackhole_disk.glb";
 
 export const STAGE_MODELS: string[][] = [
   ["planet_01", "planet_01_b", "planet_01_c"],

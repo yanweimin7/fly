@@ -7,8 +7,8 @@ import {
   SizedBox,
   GestureDetector,
 } from "fuickjs";
-import { SCENE3D_GFX, BLACKHOLE_DISK_SPIN } from "../game/config";
-import { BLACKHOLE_MODEL, BLACKHOLE_DISK_MODEL } from "../game/models";
+import { SCENE3D_GFX } from "../game/config";
+import { BLACKHOLE_MODEL } from "../game/models";
 import { Scene3D } from "@fuickjs-community/scene3d";
 
 interface StartMenuProps {
@@ -26,16 +26,14 @@ export default function StartMenu({
   screenH,
 }: StartMenuProps) {
   const [alpha, setAlpha] = useState(0);
-  const [time, setTime] = useState(0);
 
   useEffect(() => {
     let a = 0;
     const id = setInterval(() => {
-      a = Math.min(1, a + 0.055);
+      a = Math.min(1, a + 0.08);
       setAlpha(a);
-      // 菜单里的黑洞吸积盘也要持续自转：每帧推进时间并触发重渲染。
-      setTime((v) => v + 1 / 30);
-    }, 33);
+      if (a >= 1) clearInterval(id);
+    }, 50);
     return () => clearInterval(id);
   }, []);
 
@@ -49,8 +47,7 @@ export default function StartMenu({
   return (
     <Container width={screenW} height={screenH} alignment="center">
       <Column crossAxisAlignment="center" mainAxisAlignment="center">
-        {/* 黑洞：核心（阴影/光子环/透镜弧）静止，吸积盘独立自转，
-            两者在同一 Scene3D 场景内按深度正确遮挡。 */}
+        {/* 黑洞：阴影 + 光子环 + 透镜弧，不渲染吸积盘实体。 */}
         <Scene3D
           width={holeR * 2}
           height={holeR * 2}
@@ -62,15 +59,6 @@ export default function StartMenu({
               y: holeR,
               size: holeR * 2,
               spin: 0,
-              tilt: 0,
-            },
-            {
-              id: 98,
-              src: BLACKHOLE_DISK_MODEL,
-              x: holeR,
-              y: holeR,
-              size: holeR * 2,
-              spin: time * BLACKHOLE_DISK_SPIN,
               tilt: 0,
             },
           ]}
