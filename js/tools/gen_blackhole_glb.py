@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """生成黑洞 3D 模型 assets/models/blackhole.glb（纯程序化，无外部素材）。
 
-v2 结构（全部是真实 3D 几何，由 Scene3D 的 GLB 管线渲染）：
-- EventHorizon：纯黑球体，即事件视界（黑洞阴影）；
-- AccretionDisk：厚度实体 + 绕 X 轴近边缘倾斜（≈7.7°）的吸积盘。盘面/内缘
-  取自程序化 PNG 纹理（u=角向、v=径向；湍流纤维 + 螺旋亮纹 + 白热内缘 +
-  多普勒不对称），顶点色负责 HDR 内缘（让 bloom 点亮）与左右不对称；
-- PhotonRing：紧贴视界外缘的极细 HDR 冷白环（光子环）；
-- LensingHalo：位于远处的宽弧（上亮下暗），模拟引力透镜把远端盘面折到
-  阴影上/下方的像。
+输出两个模型（全部是真实 3D 几何，由 Scene3D 的 GLB 管线渲染）：
+- blackhole.glb（核心，静止）：EventHorizon 纯黑球体 + PhotonRing 极细 HDR
+  冷白环 + LensedDisk 宽厚透镜弧（上宽下窄）。核心不旋转，避免透镜弧的
+  上下不对称被转歪；
+- blackhole_disk.glb（吸积盘，独立自转）：厚度实体 + 绕 X 轴近边缘倾斜
+  （≈7.7°）的盘面，纹理为程序化 PNG（u=角向、v=径向；湍流纤维 + 螺旋亮纹
+  + 白热内缘 + 热斑）。游戏里让它绕 Y 轴缓慢自转，盘面纹理随之流动，
+  黑洞因此有自然的漩涡运动，而阴影/光子环/透镜弧保持稳定。
 
 坐标约定：Scene3D 正交相机沿 -Z 看向原点，模型 +X 屏幕向右、+Y 屏幕向下。
 模型以原点为中心，外半径 1（Scene3D 按 size/2 缩放）。
@@ -22,7 +22,9 @@ import os
 import struct
 import zlib
 
-OUT = os.path.join(os.path.dirname(__file__), "..", "assets", "models", "blackhole.glb")
+OUT_HOME = os.path.dirname(__file__)
+OUT_CORE = os.path.join(OUT_HOME, "..", "assets", "models", "blackhole.glb")
+OUT_DISK = os.path.join(OUT_HOME, "..", "assets", "models", "blackhole_disk.glb")
 TAU = math.pi * 2
 
 # —— 实体比例（模型外半径 1.0）——
@@ -62,6 +64,12 @@ DISK_RAMP = [
 ]
 # 径向暗环（t, 强度）——让盘面有「纹理感」而不是均匀渐变。
 DISK_GAPS = [(0.36, 0.45, 0.035), (0.575, 0.5, 0.045), (0.78, 0.6, 0.05)]
+# 吸积盘热斑（t, 角向中心, 角向半宽, 强度）：局部亮结随盘面自转，
+# 近边缘视角下表现为沿盘线流动的高光，让旋转清晰可见。
+DISK_HOTSPOTS = [
+    (0.10, 0.35, 0.28, 0.55),
+    (0.24, 3.05, 0.22, 0.40),
+]
 
 
 def lerp(a, b, t):
@@ -133,6 +141,11 @@ def disk_texel(t, ang):
         d = abs(t - gt) / gw
         if d < 1.0:
             m *= 1.0 - gk * (1.0 - d * d)
+    # 热斑：角向局限的亮结。
+    for ht, ha, hw, hk in DISK_HOTSPOTS:
+        dtt = (t - ht) / 0.045
+        da = math.atan2(math.sin(ang - ha), math.cos(ang - ha))
+        m += hk * math.exp(-(dtt * dtt) - (da / hw) ** 2)
     # 内缘白热增亮 / 外缘收暗。
     m *= 0.55 + 0.75 * math.exp(-t * 1.6)
     base = ramp_color(t)
@@ -179,7 +192,13 @@ def disk_hdr(t, ang):
     hdr = 0.92 - 0.60 * t
     dop = 1.0 + 0.14 * (-math.cos(ang))
     flick = 0.86 + 0.28 * (0.5 + 0.5 * math.sin(ang * 2.0 + 0.9))
-    return hdr * dop * flick
+    # 热斑处给一点 HDR 增量：小面积越过 bloom 阈值，形成闪烁的高光。
+    hot = 0.0
+    for ht, ha, hw, hk in DISK_HOTSPOTS:
+        dtt = (t - ht) / 0.05
+        da = math.atan2(math.sin(ang - ha), math.cos(ang - ha))
+        hot += hk * math.exp(-(dtt * dtt) - (da / hw) ** 2)
+    return hdr * dop * flick + hot * 0.32
 
 
 def disk_color4(t, ang):
@@ -446,60 +465,77 @@ def sphere(radius, lon_seg=64, lat_seg=32):
     return positions, indices
 
 
-def build():
+def build(parts):
+    """构建一个 GLB。parts 是 {"horizon", "ring", "lens", "disk"} 的子集。
+
+    核心（horizon+ring+lens）与吸积盘（disk）分开导出：前者保持静止，后者
+    在 Scene3D 里独立绕 Y 轴自转，避免透镜弧的上下不对称被转歪。
+    """
     b = GlbBuilder()
 
-    tex_idx = b.add_texture(b.add_image(build_disk_texture_png()))
-
-    mat_black = b.add_material("EventHorizon", (0.0, 0.0, 0.0, 1.0), False)
-    mat_ring = b.add_material("PhotonRing", (1.0, 1.0, 1.0, 1.0), True)
-    mat_lens = b.add_material("LensedDisk", (1.0, 1.0, 1.0, 1.0), True, tex_idx)
-    mat_disk = b.add_material("AccretionDisk", (1.0, 1.0, 1.0, 1.0), True, tex_idx)
-
-    # 1) 事件视界球体。
-    sp, si = sphere(HORIZON_R)
-    mesh_core = b.add_mesh("EventHorizon", sp, si, mat_black)
-
-    # 2) 吸积盘：厚壁实体 + 近边缘倾斜。
-    dp, dc, du, di = disk_solid(
-        DISK_INNER, DISK_OUTER, DISK_HALF_H, DISK_TILT, seg=192, n_rad=12
+    needs_texture = "lens" in parts or "disk" in parts
+    tex_idx = (
+        b.add_texture(b.add_image(build_disk_texture_png()))
+        if needs_texture
+        else None
     )
-    mesh_disk = b.add_mesh("AccretionDisk", dp, di, mat_disk, dc, du)
 
-    # 3) 光子环：极细 HDR 暖白环。
-    rp, rc, ru, ri = flat_ring(
-        lambda _a: RING_IN,
-        lambda _a: RING_OUT,
-        RING_Z,
-        seg=192,
-        n_rad=3,
-        color_fn=photon_ring_color,
-    )
-    mesh_ring = b.add_mesh("PhotonRing", rp, ri, mat_ring, rc, ru)
+    node_defs = []  # (节点名, mesh 下标)，按加入顺序成为根节点的 children。
 
-    # 4) 透镜环：主角，宽厚、带纹理的光环（上宽下窄）。
-    hp, hc, hu, hi = flat_ring(
-        lambda _a: LENS_IN,
-        lambda a: LENS_IN + lens_width(a),
-        LENS_Z,
-        seg=192,
-        n_rad=26,
-        color_fn=lens_color,
-    )
-    mesh_lens = b.add_mesh("LensedDisk", hp, hi, mat_lens, hc, hu)
+    # 1) 事件视界球体（纯黑）。
+    if "horizon" in parts:
+        mat_black = b.add_material("EventHorizon", (0.0, 0.0, 0.0, 1.0), False)
+        sp, si = sphere(HORIZON_R)
+        node_defs.append(
+            ("EventHorizon", b.add_mesh("EventHorizon", sp, si, mat_black))
+        )
+
+    # 2) 光子环：极细 HDR 暖白环。
+    if "ring" in parts:
+        mat_ring = b.add_material("PhotonRing", (1.0, 1.0, 1.0, 1.0), True)
+        rp, rc, ru, ri = flat_ring(
+            lambda _a: RING_IN,
+            lambda _a: RING_OUT,
+            RING_Z,
+            seg=192,
+            n_rad=3,
+            color_fn=photon_ring_color,
+        )
+        node_defs.append(("PhotonRing", b.add_mesh("PhotonRing", rp, ri, mat_ring, rc, ru)))
+
+    # 3) 透镜环：宽厚、带纹理的光环（上宽下窄）。
+    if "lens" in parts:
+        mat_lens = b.add_material("LensedDisk", (1.0, 1.0, 1.0, 1.0), True, tex_idx)
+        hp, hc, hu, hi = flat_ring(
+            lambda _a: LENS_IN,
+            lambda a: LENS_IN + lens_width(a),
+            LENS_Z,
+            seg=192,
+            n_rad=26,
+            color_fn=lens_color,
+        )
+        node_defs.append(("LensedDisk", b.add_mesh("LensedDisk", hp, hi, mat_lens, hc, hu)))
+
+    # 4) 吸积盘：厚壁实体 + 近边缘倾斜。
+    if "disk" in parts:
+        mat_disk = b.add_material("AccretionDisk", (1.0, 1.0, 1.0, 1.0), True, tex_idx)
+        dp, dc, du, di = disk_solid(
+            DISK_INNER, DISK_OUTER, DISK_HALF_H, DISK_TILT, seg=192, n_rad=12
+        )
+        node_defs.append(("AccretionDisk", b.add_mesh("AccretionDisk", dp, di, mat_disk, dc, du)))
+
+    nodes = [
+        {"name": "BlackHole", "children": [i + 1 for i in range(len(node_defs))]}
+    ]
+    for name, mesh_idx in node_defs:
+        nodes.append({"name": name, "mesh": mesh_idx})
 
     gltf = {
         "asset": {"version": "2.0", "generator": "fly/tools/gen_blackhole_glb.py"},
         "extensionsUsed": ["KHR_materials_unlit"],
         "scene": 0,
         "scenes": [{"name": "BlackHole", "nodes": [0]}],
-        "nodes": [
-            {"name": "BlackHole", "children": [1, 2, 3, 4]},
-            {"name": "EventHorizon", "mesh": mesh_core},
-            {"name": "AccretionDisk", "mesh": mesh_disk},
-            {"name": "PhotonRing", "mesh": mesh_ring},
-            {"name": "LensedDisk", "mesh": mesh_lens},
-        ],
+        "nodes": nodes,
         "meshes": b.meshes,
         "materials": b.materials,
         "images": b.images,
@@ -514,8 +550,7 @@ def build():
     return gltf, bytes(b.bin)
 
 
-def main():
-    gltf, bin_data = build()
+def write_glb(gltf, bin_data, target):
     json_data = json.dumps(gltf, separators=(",", ":"), ensure_ascii=True).encode()
     while len(json_data) % 4:
         json_data += b" "
@@ -529,7 +564,7 @@ def main():
     out.extend(struct.pack("<II", len(bin_data), 0x004E4942))
     out.extend(bin_data)
 
-    target = os.path.abspath(OUT)
+    target = os.path.abspath(target)
     os.makedirs(os.path.dirname(target), exist_ok=True)
     with open(target, "wb") as f:
         f.write(out)
@@ -544,6 +579,13 @@ def main():
             len(gltf["images"]),
         )
     )
+
+
+def main():
+    core_gltf, core_bin = build({"horizon", "ring", "lens"})
+    write_glb(core_gltf, core_bin, OUT_CORE)
+    disk_gltf, disk_bin = build({"disk"})
+    write_glb(disk_gltf, disk_bin, OUT_DISK)
 
 
 if __name__ == "__main__":

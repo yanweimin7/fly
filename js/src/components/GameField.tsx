@@ -5,12 +5,13 @@ import {
   WORLD_RADIUS,
   BLACK_HOLE_STAGE,
   BLACKHOLE_GRAVITY_RATIO,
+  BLACKHOLE_DISK_SPIN,
   SCENE3D_GFX,
   STAR_GLOW,
 } from "../game/config";
 import Planet from "./Planet";
 import { computeCamera } from "../game/camera";
-import { stageModel } from "../game/models";
+import { stageModel, BLACKHOLE_DISK_MODEL } from "../game/models";
 import { Scene3D } from "@fuickjs-community/scene3d";
 import type { Scene3DBody } from "@fuickjs-community/scene3d";
 
@@ -29,6 +30,9 @@ const BODY_TILT = 0.35;
 function spinSpeed(id: number): number {
   return 0.6 + (id % 7) * 0.08;
 }
+
+/** 吸积盘在 Scene3D 里是独立节点，用大偏移量避免与实体 id 冲突。 */
+const BLACKHOLE_DISK_ID_OFFSET = 1_000_000;
 
 /** 6 位 hex 追加 alpha(0..1) 转 8 位。 */
 function alphaColor(hex: string, opacity: number): string {
@@ -61,8 +65,8 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
     const t = state.time;
 
     // 冷行星/恒星/黑洞交给底部 Scene3D 3D 层（真实 GLB 模型）。
-    // 黑洞是真正的 3D 模型：纯黑球体事件视界 + 倾斜吸积盘 + 光子环，
-    // 几何自带固定倾角，不能再叠加行星自转/轴倾角（否则盘面会翻转）。
+    // 黑洞拆成「核心 + 吸积盘」两个模型：核心（阴影/光子环/透镜弧）保持静止，
+    // 吸积盘作为独立节点绕 Y 轴缓慢自转，盘面纹理流动形成自然的漩涡。
     if (body.power <= MAX_3D_POWER || body.power === BLACK_HOLE_STAGE) {
       const blackHole = body.power === BLACK_HOLE_STAGE;
       const glow = STAR_GLOW[body.power];
@@ -80,6 +84,17 @@ export default function GameField({ state, screenW, screenH }: GameFieldProps) {
         glowAlpha: glow?.alpha,
         glowSpin: glow ? t * glow.spin : undefined,
       });
+      if (blackHole) {
+        bodies3d.push({
+          id: body.id + BLACKHOLE_DISK_ID_OFFSET,
+          src: BLACKHOLE_DISK_MODEL,
+          x: sx,
+          y: sy,
+          size: d,
+          spin: t * BLACKHOLE_DISK_SPIN,
+          tilt: 0,
+        });
+      }
       return null;
     }
 
