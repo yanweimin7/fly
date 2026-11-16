@@ -12,16 +12,26 @@ import { BLACKHOLE_MODEL } from "../game/models";
 import { Scene3D } from "@fuickjs-community/scene3d";
 
 interface StartMenuProps {
-  /** 点击「开始游戏」回调。 */
+  /** 点击「开始游戏 / 重新开始」回调：丢弃存档并开新局。 */
   onStart: () => void;
+  /** 是否存在可继续的暂停存档。 */
+  hasSave: boolean;
+  /** 点击「继续游戏」回调：从存档恢复。 */
+  onContinue: () => void;
+  /** 存档水合完成前不渲染按钮，避免「开始游戏」闪现后又变成「继续游戏」。 */
+  ready: boolean;
   screenW: number;
   screenH: number;
 }
 
 /** 进入游戏时的开始菜单：纯星空背景（无全屏遮罩）上叠一个黑洞 + 黑色面板 + 下方「开始游戏」按钮。
- * 游戏本体在 onStart 之前既不推进也不挂载（见 GamePage 的 started 闸门）。 */
+ * 游戏本体在 onStart 之前既不推进也不挂载（见 GamePage 的 started 闸门）。
+ * 有暂停存档时主按钮变为「继续游戏」，下方追加「重新开始」。 */
 export default function StartMenu({
   onStart,
+  hasSave,
+  onContinue,
+  ready,
   screenW,
   screenH,
 }: StartMenuProps) {
@@ -97,25 +107,54 @@ export default function StartMenu({
 
         <SizedBox height={28} />
 
-        <GestureDetector onTap={onStart}>
-          <Container
-            width={180}
-            height={52}
-            alignment="center"
-            decoration={{
-              color: btn,
-              borderRadius: 26,
-              border: { width: 1, color: `rgba(255,255,255,${0.7 * alpha})` },
-            }}
-          >
-            <Text
-              text="开始游戏"
-              color="#000000"
-              fontSize={18}
-              fontWeight="bold"
-            />
-          </Container>
-        </GestureDetector>
+        {ready && (
+          <React.Fragment>
+            <GestureDetector onTap={hasSave ? onContinue : onStart}>
+              <Container
+                width={180}
+                height={52}
+                alignment="center"
+                decoration={{
+                  color: btn,
+                  borderRadius: 26,
+                  border: {
+                    width: 1,
+                    color: `rgba(255,255,255,${0.7 * alpha})`,
+                  },
+                }}
+              >
+                <Text
+                  text={hasSave ? "继续游戏" : "开始游戏"}
+                  color="#000000"
+                  fontSize={18}
+                  fontWeight="bold"
+                />
+              </Container>
+            </GestureDetector>
+
+            {hasSave && (
+              <React.Fragment>
+                <SizedBox height={12} />
+                <GestureDetector onTap={onStart}>
+                  <Container
+                    width={180}
+                    height={44}
+                    alignment="center"
+                    decoration={{
+                      borderRadius: 22,
+                      border: {
+                        width: 1,
+                        color: `rgba(144,164,174,${0.6 * alpha})`,
+                      },
+                    }}
+                  >
+                    <Text text="重新开始" color="#b0bec5" fontSize={15} />
+                  </Container>
+                </GestureDetector>
+              </React.Fragment>
+            )}
+          </React.Fragment>
+        )}
 
         <SizedBox height={16} />
         <Text

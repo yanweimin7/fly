@@ -8,9 +8,11 @@ import {
   Text,
   useMediaQuery,
   DeviceInfoService,
+  hydrateStorage,
 } from "fuickjs";
 import { GameStore, InputState } from "../store/game";
 import { step, tryCapture, forceLevelUp, revive } from "../game/engine";
+import { saveGame, loadGame, clearSave } from "../game/save";
 import {
   STAGES,
   TICK_RATE,
@@ -73,11 +75,30 @@ export default function GamePage() {
 
   // 开始菜单闸门：未点「开始游戏」前不推进游戏（时间/生成/碰撞全部冻结）。
   const [started, setStarted] = useState(false);
+  // 存档水合：localStorage 跨会话读取只能异步，完成后菜单才知道有无「继续游戏」。
+  const [saveReady, setSaveReady] = useState(false);
+  const [hasSave, setHasSave] = useState(false);
   // 摇杆输入。
   const inputRef = useRef<InputState>({ dx: 0, dy: 0, intensity: 0 });
   const [, setTick] = useState(0);
 
   useEffect(() => store.subscribe(() => setTick((t) => t + 1)), [store]);
+
+  useEffect(() => {
+    let alive = true;
+    hydrateStorage()
+      .then(() => {
+        if (!alive) return;
+        setHasSave(loadGame() !== null);
+      })
+      .catch((e) => console.warn("[save] hydrate 失败:", e))
+      .finally(() => {
+        if (alive) setSaveReady(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // 屏幕尺寸：设备信息可能异步返回且随后不再变化；只在首次拿到有效尺寸时
   // 用真实 W/H 初始化场地（GameStore 首帧可能是 360x640 fallback），
@@ -120,6 +141,46 @@ export default function GamePage() {
   };
   const stageName = `L${STAGES[state.stageIndex].id} ${STAGES[state.stageIndex].name}`;
   const won = state.status === "win";
+
+  // 对局结束（死亡 / 通关）后旧暂停存档已无意义，清掉避免菜单恢复出过期进度。
+  useEffect(() => {
+    if (!started || state.status === "playing") return;
+    clearSave();
+    setHasSave(false);
+  }, [started, state.status]);
+
+  /** 暂停：存档成功后返回开始菜单（菜单主按钮变为「继续游戏」）。 */
+  const pauseGame = () => {
+    sfx("tap");
+    if (!saveGame(store.getState())) return;
+    setHasSave(true);
+    setStarted(false);
+  };
+
+  /** 继续：从存档整局恢复，从暂停时的同一 tick 接着跑。 */
+  const continueGame = () => {
+    sfx("tap");
+    const saved = loadGame();
+    if (!saved) {
+      // 存档在读取时损坏 / 被清掉：退回新开局，避免卡在菜单。
+      clearSave();
+      setHasSave(false);
+      store.reset(W, H);
+      setStarted(true);
+      return;
+    }
+    store.setState(saved);
+    setStarted(true);
+  };
+
+  /** 新开局：丢弃旧存档。 */
+  const startNewGame = () => {
+    sfx("tap");
+    clearSave();
+    setHasSave(false);
+    store.reset(W, H);
+    setStarted(true);
+  };
 
   return (
     <Scaffold backgroundColor="#000000">
@@ -191,6 +252,31 @@ export default function GamePage() {
                 </GestureDetector>
               </Positioned>
 
+              {/* 暂停：存档并回到开始菜单（菜单显示「继续游戏」）。 */}
+              {state.status === "playing" && (
+                <Positioned left={74} top={120}>
+                  <GestureDetector onTap={pauseGame}>
+                    <Container
+                      width={56}
+                      height={56}
+                      alignment="center"
+                      decoration={{
+                        color: "rgba(255,167,38,0.85)",
+                        borderRadius: 28,
+                        border: { color: "#ffffff", width: 2 },
+                      }}
+                    >
+                      <Text
+                        text="暂停"
+                        color="#ffffff"
+                        fontSize={16}
+                        fontWeight="bold"
+                      />
+                    </Container>
+                  </GestureDetector>
+                </Positioned>
+              )}
+
               <Positioned left={18} bottom={28}>
                 <Joystick inputRef={inputRef} />
               </Positioned>
@@ -240,11 +326,10 @@ export default function GamePage() {
           {!started && (
             <Positioned left={0} top={0} right={0} bottom={0}>
               <StartMenu
-                onStart={() => {
-                  sfx("tap");
-                  store.reset(W, H);
-                  setStarted(true);
-                }}
+                onStart={startNewGame}
+                hasSave={hasSave}
+                onContinue={continueGame}
+                ready={saveReady}
                 screenW={W}
                 screenH={H}
               />
